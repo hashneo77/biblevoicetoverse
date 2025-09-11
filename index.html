@@ -1,50 +1,211 @@
-<script>
-let currentRef = null; // store {book, chapter, verse, verseEnd}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Voice → Bible Verse (push-to-talk + keys)</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:24px;background:#fafafa}
+    .card{max-width:920px;margin:12px auto;padding:20px;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+    button{font-size:18px;padding:12px 18px;border-radius:10px;border:1px solid #333;background:#fff;cursor:pointer}
+    button.listening{background:#ffefef;border-color:#ff6b6b}
+    #transcript{margin-top:12px;font-weight:600}
+    #verse{margin-top:18px;padding:14px;background:#f7f7f7;border-radius:8px;min-height:60px}
+    #log{margin-top:12px;color:#666;font-size:14px;white-space:pre-wrap}
+    .hint{margin-top:8px;color:#444;font-size:14px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Voice → Bible Verse (push-to-talk + ← / → keys)</h1>
+    <p>Click <strong>Start</strong>, speak a reference (e.g. <em>"Genesis chapter three verse six"</em>), then use the keyboard arrows to move verses.</p>
 
-/* Replace your fetchVerse call with this helper */
-async function showVerse(parsed) {
+    <button id="startStopBtn">Start</button>
+    <div class="hint">Use ← for previous verse, → for next verse (when a verse is loaded).</div>
+
+    <div id="transcript"></div>
+    <div id="verse"></div>
+    <div id="log"></div>
+  </div>
+
+<script>
+/* ===== book mapping - extend as needed ===== */
+const BOOK_ALIASES = {
+  "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
+  "joshua":"Joshua","judges":"Judges","ruth":"Ruth","1 samuel":"1 Samuel","one samuel":"1 Samuel","2 samuel":"2 Samuel",
+  "1 kings":"1 Kings","one kings":"1 Kings","2 kings":"2 Kings","one kings":"1 Kings",
+  "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts",
+  "romans":"Romans","1 corinthians":"1 Corinthians","2 corinthians":"2 Corinthians",
+  "galatians":"Galatians","ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians",
+  "psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","isaiah":"Isaiah","jeremiah":"Jeremiah","revelation":"Revelation"
+};
+
+/* ===== helpers ===== */
+function normalizeSpoken(s){
+  return s.trim()
+    .replace(/\bchapter\b/gi,' ')
+    .replace(/\bverse\b/gi,' ')
+    .replace(/\bverses\b/gi,' ')
+    .replace(/\bto\b/gi,'-')
+    .replace(/\band\b/gi,' ')
+    .replace(/[,\.]/g,' ')
+    .replace(/\s+/g,' ')
+    .toLowerCase();
+}
+function wordsToNumber(w){
+  const m = {'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'twenty':20,'thirty':30};
+  if(!isNaN(Number(w))) return Number(w);
+  return m[w]||null;
+}
+
+/* parse spoken reference -> {book,chapter,verse,verseEnd?} */
+function parseReference(spokenText){
+  const s = normalizeSpoken(spokenText);
+  const tokens = s.split(' ').filter(Boolean);
+  for(let len = Math.min(3,tokens.length); len>=1; len--){
+    const candidate = tokens.slice(0,len).join(' ');
+    if(BOOK_ALIASES[candidate]){
+      const book = BOOK_ALIASES[candidate];
+      const rest = tokens.slice(len).join(' ').trim();
+      const colon = rest.match(/(\d+):(\d+)(?:-(\d+))?/);
+      if(colon) return {book, chapter: Number(colon[1]), verse: Number(colon[2]), verseEnd: colon[3]?Number(colon[3]):Number(colon[2])};
+      const nums = rest.split(/[\s\-]+/).filter(Boolean);
+      if(nums.length>=2){
+        const chap = Number(nums[0]) || wordsToNumber(nums[0]);
+        const v = Number(nums[1]) || wordsToNumber(nums[1]);
+        if(chap && v) return {book, chapter:chap, verse:v, verseEnd:v};
+      }
+      const single = rest.match(/(\d+|[a-z]+)/);
+      if(single){
+        const n = Number(single[1]) || wordsToNumber(single[1]);
+        if(n) return {book, chapter:n, verse:1, verseEnd:1};
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+/* ===== UI + SpeechRecognition wiring ===== */
+const btn = document.getElementById('startStopBtn');
+const transcriptEl = document.getElementById('transcript');
+const verseEl = document.getElementById('verse');
+const logEl = document.getElementById('log');
+
+function log(msg){ logEl.innerText = msg; console.log(msg); }
+
+/* current reference holder */
+let currentRef = null; // {book,chapter,verse,verseEnd}
+
+/* showVerse: fetch and render - stores currentRef on success */
+async function showVerse(parsed){
   try {
-    currentRef = parsed; // store latest
-    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}` +
-      (parsed.verseEnd && parsed.verseEnd>parsed.verse ? `-${parsed.verseEnd}` : '');
+    const parsedCopy = { ...parsed }; // avoid external mutation surprises
+    const ref = `${parsedCopy.book} ${parsedCopy.chapter}:${parsedCopy.verse}` +
+      (parsedCopy.verseEnd && parsedCopy.verseEnd > parsedCopy.verse ? `-${parsedCopy.verseEnd}` : '');
     const url = `https://bible-api.com/${encodeURIComponent(ref)}`;
+    log('Fetching ' + ref + ' ...');
     const resp = await fetch(url);
     if(!resp.ok) throw new Error('Bible API returned ' + resp.status);
     const data = await resp.json();
-    document.getElementById("verse").innerHTML =
-      `<strong>${data.reference} (${data.translation_id||'text'})</strong>
-       <p style="white-space:pre-wrap">${data.text}</p>`;
-    document.getElementById("log").innerText = 'Verse loaded.';
+    verseEl.innerHTML = `<strong>${data.reference} (${data.translation_id||'text'})</strong>
+                         <p style="white-space:pre-wrap;margin-top:8px">${data.text}</p>`;
+    log('Verse loaded.');
+    currentRef = parsedCopy; // store only after success
   } catch(err){
-    document.getElementById("log").innerText = 'Error fetching verse: ' + err.message;
+    log('Error fetching verse: ' + err.message);
   }
 }
 
-/* Update recog.onresult to call showVerse(parsed) instead of fetch directly */
-recog.onresult = async (ev) => {
-  const text = ev.results[0][0].transcript;
-  transcriptEl.innerText = 'Heard: "' + text + '"';
-  const parsed = parseReference(text);
-  if(!parsed){
-    log('Could not parse a Bible reference.');
-    return;
-  }
-  log(`Parsed: ${parsed.book} ${parsed.chapter}:${parsed.verse}`);
-  await showVerse(parsed);
-};
+/* SpeechRecognition availability */
+if(!(window.SpeechRecognition || window.webkitSpeechRecognition)){
+  log('SpeechRecognition not available in this browser. Use Chrome (desktop) for testing.');
+  btn.disabled = true;
+} else {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recog = new SpeechRecognition();
+  recog.lang = 'en-US';
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  recog.continuous = false;
 
-/* Keyboard navigation: left/right arrow */
-document.addEventListener('keydown', (ev)=>{
+  let listening = false;
+
+  btn.addEventListener('click', ()=>{
+    if(!listening){
+      try {
+        recog.start();
+        listening = true;
+        btn.classList.add('listening');
+        btn.innerText = 'Stop';
+        transcriptEl.innerText = '';
+        verseEl.innerText = '';
+        log('Listening — speak now.');
+      } catch(e){
+        log('Could not start recognition: ' + e.message);
+      }
+    } else {
+      try {
+        recog.stop();
+        listening = false;
+        btn.classList.remove('listening');
+        btn.innerText = 'Start';
+        log('Stopped — processing...');
+      } catch(e){
+        log('Could not stop recognition: ' + e.message);
+      }
+    }
+  });
+
+  recog.onresult = async (ev) => {
+    const text = ev.results[0][0].transcript;
+    transcriptEl.innerText = 'Heard: "' + text + '"';
+    log('Recognized: ' + text);
+    const parsed = parseReference(text);
+    if(!parsed){
+      log('Could not parse a Bible reference. Try: "Genesis chapter three verse five" or "John 3:16".');
+      return;
+    }
+    log(`Parsed: ${parsed.book} ${parsed.chapter}:${parsed.verse}`);
+    await showVerse(parsed);
+  };
+
+  recog.onerror = (e) => {
+    log('Speech error: ' + (e.error || JSON.stringify(e)));
+    listening = false;
+    btn.classList.remove('listening');
+    btn.innerText = 'Start';
+  };
+
+  recog.onend = () => {
+    listening = false;
+    btn.classList.remove('listening');
+    btn.innerText = 'Start';
+  };
+}
+
+/* ===== keyboard navigation =====
+   Left Arrow: previous verse (verse - 1) - stops at verse 1
+   Right Arrow: next verse (verse + 1) - tries fetch, reverts on failure
+*/
+document.addEventListener('keydown', async (ev)=>{
   if(!currentRef) return;
-  if(ev.key === "ArrowLeft"){  // previous verse
+  if(ev.key === "ArrowLeft"){
     if(currentRef.verse > 1){
-      currentRef.verse -= 1;
-      showVerse(currentRef);
+      const candidate = { ...currentRef, verse: currentRef.verse - 1 };
+      await showVerse(candidate);
+    } else {
+      log('Already at verse 1 of this chapter.'); 
     }
   }
-  if(ev.key === "ArrowRight"){ // next verse
-    currentRef.verse += 1;
-    showVerse(currentRef);
+  if(ev.key === "ArrowRight"){
+    const candidate = { ...currentRef, verse: currentRef.verse + 1 };
+    // try fetch; if fails, do not change currentRef
+    const previous = { ...currentRef };
+    await showVerse(candidate);
+    // if showVerse failed, currentRef will remain previous; showVerse logs error
   }
 });
 </script>
+</body>
+</html>
