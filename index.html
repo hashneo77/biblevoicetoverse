@@ -235,6 +235,65 @@ document.addEventListener('keydown',(ev)=>{
   if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1)showVerse({...currentRef,verse:currentRef.verse-1});
   if(ev.key==="ArrowRight"&&currentRef)showVerse({...currentRef,verse:currentRef.verse+1});
 });
+
+// === Meta / Windows key trigger for start/stop mic ===
+// Add this after startStopBtn is defined in your script.
+
+(function() {
+  // simple debounce so holding key doesn't spam
+  let lastToggle = 0;
+  const DEBOUNCE_MS = 400;
+
+  function tryToggleFromEvent(ev) {
+    const now = Date.now();
+    if (now - lastToggle < DEBOUNCE_MS) return;
+    lastToggle = now;
+
+    // If we already have a Start/Stop button, use its existing behavior
+    if (!window.startStopBtn && !document.getElementById('startStopBtn')) return;
+    const btn = window.startStopBtn || document.getElementById('startStopBtn');
+
+    // If the button is disabled or not interactive, ignore
+    if (!btn || btn.disabled) return;
+
+    // Toggle by programmatic click so existing handlers run
+    btn.click();
+  }
+
+  document.addEventListener('keydown', (ev) => {
+    try {
+      // Normalize key detection:
+      // - ev.key === 'Meta' is true for Command on Mac and Windows key on Windows.
+      // - ev.metaKey is true when Meta is held (even if another key is pressed).
+      // Some browsers/OSes won't deliver a standalone Meta press — so we support combos too.
+
+      // 1) If browser actually delivers a pure Meta keydown (rare), toggle
+      if (ev.key === 'Meta') {
+        ev.preventDefault?.(); // attempt to stop default OS behavior (may not always work)
+        tryToggleFromEvent(ev);
+        return;
+      }
+
+      // 2) Preferred reliable combos: Meta + Space, Meta + m (case-insensitive)
+      if (ev.metaKey && (ev.code === 'Space' || ev.key.toLowerCase() === 'm')) {
+        // Prevent page scrolling on Meta+Space (or other default)
+        ev.preventDefault?.();
+        tryToggleFromEvent(ev);
+        return;
+      }
+
+      // 3) Optional fallback: Windows/Linux where Meta isn't available — use Ctrl+Alt+M
+      if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 'm') {
+        ev.preventDefault?.();
+        tryToggleFromEvent(ev);
+        return;
+      }
+    } catch (err) {
+      console.warn('Meta key toggle error', err);
+    }
+  }, { passive: false });
+})();
+
 </script>
 </body>
 </html>
