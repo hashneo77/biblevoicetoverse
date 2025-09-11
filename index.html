@@ -182,8 +182,29 @@ const BOOK_ALIASES = {
   "1 john":"1 John","one john":"1 John","first john":"1 John",
   "2 john":"2 John","two john":"2 John","second john":"2 John",
   "3 john":"3 John","three john":"3 John","third john":"3 John",
-  "jude":"Jude","revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation"
+  "jude":"Jude","revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation",
+
+  /* --- Deuterocanonical / Catholic books & common aliases --- */
+  "tobit":"Tobit","tobias":"Tobit",
+  "judith":"Judith",
+  "wisdom":"Wisdom","wisdom of solomon":"Wisdom","wisdom of the solomon":"Wisdom",
+  "sirach":"Sirach","ecclesiasticus":"Sirach","ben sira":"Sirach",
+  "baruch":"Baruch","letter of jeremiah":"Baruch","jeremiah letter":"Baruch",
+  "1 maccabees":"1 Maccabees","one maccabees":"1 Maccabees","first maccabees":"1 Maccabees","1 mac":"1 Maccabees","first mac":"1 Maccabees",
+  "2 maccabees":"2 Maccabees","two maccabees":"2 Maccabees","second maccabees":"2 Maccabees","2 mac":"2 Maccabees","second mac":"2 Maccabees",
+  "efficiency":"Ephesians",
+  "Efficiency":"Ephesians",
+  "efficience":"Ephesians",
+  /* Additions commonly embedded in Esther / Daniel (map to helpful labels) */
+  "additions to esther":"Esther (Additions)","esther additions":"Esther (Additions)","rest of esther":"Esther (Additions)",
+
+  /* Daniel additions */
+  "susanna":"Daniel (Susanna)","susannah":"Daniel (Susanna)",
+  "bel and the dragon":"Daniel (Bel and the Dragon)","bel and dragon":"Daniel (Bel and the Dragon)",
+  "prayer of azariah":"Daniel (Prayer of Azariah)","song of the three children":"Daniel (Song of the Three Holy Children)",
+  "song of the three young men":"Daniel (Song of the Three Holy Children)","song of the three":"Daniel (Song of the Three Holy Children)"
 };
+
 
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
 function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
