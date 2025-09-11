@@ -91,7 +91,7 @@
       margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;
       padding:22px;border-radius:12px;min-height:550px;text-align:center;
       width:90%;       /* 90% of the parent width */
-      max-width:1250; /* don’t grow beyond this */
+      max-width:1250px; /* corrected to include px */
     }
     body[data-theme="dark"] .verse-stage { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .verse-stage { background: rgba(0,0,0,0.02) }
@@ -109,6 +109,9 @@
       .verse-ref{font-size:26px}
       .verse-body{font-size:28px}
     }
+
+    /* hidden file input visually */
+    #xmlFileInput { display:none; }
   </style>
 </head>
 <body data-theme="dark">
@@ -129,6 +132,7 @@
         <button id="bigMinus" class="btn secondary">A-</button>
         <button id="bigPlus" class="btn">A+</button>
         <button id="themeBtn" class="btn">🌞/🌙</button>
+        <button id="loadLocalBtn" class="btn secondary">Load local XML</button>
       </div>
     </div>
 
@@ -144,116 +148,50 @@
     </div>
   </div>
 
+  <!-- hidden file input for manual-loading fallback -->
+  <input id="xmlFileInput" type="file" accept=".xml,.XML" />
+
 <script>
 /* === Aliases (shortened here, plug in the full BOOK_ALIASES we built earlier) === */
 const BOOK_ALIASES = {
-  // Pentateuch
-  "genesis":"Genesis",
-  "exodus":"Exodus",
-  "leviticus":"Leviticus",
-  "numbers":"Numbers",
-  "deuteronomy":"Deuteronomy",
-
-  // History
-  "joshua":"Joshua",
-  "judges":"Judges",
-  "ruth":"Ruth",
-
+  "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
+  "joshua":"Joshua","judges":"Judges","ruth":"Ruth",
   "1 samuel":"1 Samuel","one samuel":"1 Samuel","first samuel":"1 Samuel",
   "2 samuel":"2 Samuel","two samuel":"2 Samuel","second samuel":"2 Samuel",
-
   "1 kings":"1 Kings","one kings":"1 Kings","first kings":"1 Kings",
   "2 kings":"2 Kings","two kings":"2 Kings","second kings":"2 Kings",
-
   "1 chronicles":"1 Chronicles","one chronicles":"1 Chronicles","first chronicles":"1 Chronicles",
   "2 chronicles":"2 Chronicles","two chronicles":"2 Chronicles","second chronicles":"2 Chronicles",
-
-  "ezra":"Ezra",
-  "nehemiah":"Nehemiah",
-  "esther":"Esther",
-
-  // Wisdom / Poetry
-  "job":"Job",
-  "psalm":"Psalms","psalms":"Psalms",
-  "proverbs":"Proverbs",
-  "ecclesiastes":"Ecclesiastes",
+  "ezra":"Ezra","nehemiah":"Nehemiah","esther":"Esther",
+  "job":"Job","psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","ecclesiastes":"Ecclesiastes",
   "song of solomon":"Song of Solomon","song of songs":"Song of Solomon",
-
-  // Major Prophets
-  "isaiah":"Isaiah",
-  "jeremiah":"Jeremiah",
-  "lamentations":"Lamentations",
-  "ezekiel":"Ezekiel",
-  "daniel":"Daniel",
-
-  // Minor Prophets
-  "hosea":"Hosea",
-  "joel":"Joel",
-  "amos":"Amos",
-  "obadiah":"Obadiah",
-  "jonah":"Jonah",
-  "micah":"Micah",
-  "nahum":"Nahum",
-  "habakkuk":"Habakkuk",
-  "zephaniah":"Zephaniah",
-  "haggai":"Haggai",
-  "zechariah":"Zechariah",
-  "malachi":"Malachi",
-
-  // Gospels & Acts
-  "matthew":"Matthew",
-  "mark":"Mark",
-  "luke":"Luke",
-  "john":"John",
-  "acts":"Acts","acts of the apostles":"Acts",
-
-  // Pauline Epistles
+  "isaiah":"Isaiah","jeremiah":"Jeremiah","lamentations":"Lamentations","ezekiel":"Ezekiel","daniel":"Daniel",
+  "hosea":"Hosea","joel":"Joel","amos":"Amos","obadiah":"Obadiah","jonah":"Jonah","micah":"Micah","nahum":"Nahum","habakkuk":"Habakkuk","zephaniah":"Zephaniah","haggai":"Haggai","zechariah":"Zechariah","malachi":"Malachi",
+  "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts","acts of the apostles":"Acts",
   "romans":"Romans",
-
   "1 corinthians":"1 Corinthians","one corinthians":"1 Corinthians","first corinthians":"1 Corinthians",
   "2 corinthians":"2 Corinthians","two corinthians":"2 Corinthians","second corinthians":"2 Corinthians",
-
-  "galatians":"Galatians",
-  "ephesians":"Ephesians",
-  "Efficient":"Ephesians",
-  "efficient":"Ephesians",
-  "Efficiency":"Ephesians",
-  "efficiency":"Ephesians",
-  "philippians":"Philippians",
-  "colossians":"Colossians",
-
+  "galatians":"Galatians","ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians",
   "1 thessalonians":"1 Thessalonians","one thessalonians":"1 Thessalonians","first thessalonians":"1 Thessalonians",
   "2 thessalonians":"2 Thessalonians","two thessalonians":"2 Thessalonians","second thessalonians":"2 Thessalonians",
-
   "1 timothy":"1 Timothy","one timothy":"1 Timothy","first timothy":"1 Timothy",
   "2 timothy":"2 Timothy","two timothy":"2 Timothy","second timothy":"2 Timothy",
-
-  "titus":"Titus",
-  "philemon":"Philemon",
-
-  // General Epistles
-  "hebrews":"Hebrews",
-  "james":"James",
-
+  "titus":"Titus","philemon":"Philemon","hebrews":"Hebrews","james":"James",
   "1 peter":"1 Peter","one peter":"1 Peter","first peter":"1 Peter",
   "2 peter":"2 Peter","two peter":"2 Peter","second peter":"2 Peter",
-
   "1 john":"1 John","one john":"1 John","first john":"1 John",
   "2 john":"2 John","two john":"2 John","second john":"2 John",
   "3 john":"3 John","three john":"3 John","third john":"3 John",
-
-  "jude":"Jude",
-
-  // Prophecy
-  "revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation"
+  "jude":"Jude","revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation"
 };
 
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
-function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
+function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
 
 function parseReference(text){
   const s = normalizeSpoken(text);
   const tokens = s.split(' ').filter(Boolean);
+  // try up to 3-word book tokens (e.g. 'song of songs')
   for(let len=Math.min(3,tokens.length);len>=1;len--){
     const candidate=tokens.slice(0,len).join(' ');
     if(BOOK_ALIASES[candidate]){
@@ -261,17 +199,23 @@ function parseReference(text){
       const rest=tokens.slice(len).join(' ');
       const colon=rest.match(/(\d+):(\d+)/);
       if(colon)return{book,chapter:+colon[1],verse:+colon[2]};
-      const nums=rest.split(/\s+/);
+      const nums=rest.split(/\s+/).filter(Boolean);
       if(nums.length>=2){
         const c=+nums[0]||wordsToNumber(nums[0]);
         const v=+nums[1]||wordsToNumber(nums[1]);
         if(c&&v)return{book,chapter:c,verse:v};
+      }
+      // maybe user said only chapter (e.g. John 3) -> default verse 1
+      if(nums.length===1){
+        const c=+nums[0]||wordsToNumber(nums[0]);
+        if(c) return {book, chapter:c, verse:1};
       }
     }
   }
   return null;
 }
 
+/* DOM refs */
 const startStopBtn=document.getElementById('startStopBtn');
 const prevBtn=document.getElementById('prevBtn');
 const nextBtn=document.getElementById('nextBtn');
@@ -282,28 +226,128 @@ const logEl=document.getElementById('log');
 const bigPlus=document.getElementById('bigPlus');
 const bigMinus=document.getElementById('bigMinus');
 const themeBtn=document.getElementById('themeBtn');
+const loadLocalBtn=document.getElementById('loadLocalBtn');
+const xmlFileInput=document.getElementById('xmlFileInput');
 
-let currentRef=null;baseFontSize=44;
-function log(msg){logEl.innerText=msg;}
+let currentRef=null, baseFontSize=44;
+function log(msg){ logEl.innerText = msg; console.log(msg); }
 
-async function showVerse(parsed){
-  try{
-    const ref=`${parsed.book} ${parsed.chapter}:${parsed.verse}`;
-    const resp=await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
-    if(!resp.ok)throw new Error(resp.status);
-    const data=await resp.json();
-    verseRefEl.innerText=data.reference+(data.translation_id?` — ${data.translation_id}`:'');
-    verseBodyEl.innerText=data.text.trim();
-    verseBodyEl.style.fontSize=baseFontSize+'px';
-    currentRef=parsed;
-    log('Verse loaded.');
-  }catch(e){log('Error: '+e.message);}
+/* ===== Local XML bible store =====
+Structure:
+  bibleData = {
+    "Genesis": { "1": { "1": "In the beginning...", "2": "..." }, "2": {...} },
+    "John": { "3": { "16": "For God so loved the world..." } }
+  }
+Also hold a set of book names for quick lookup.
+*/
+let bibleData = null;
+let bibleBookNames = null;
+
+/* Parse Zefania-like XML into bibleData */
+function parseBibleXMLString(xmlString) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlString, "application/xml");
+    const parseError = doc.querySelector("parsererror");
+    if (parseError) throw new Error("XML parse error");
+
+    const bibleDataLocal = {};
+    const books = doc.getElementsByTagName("BIBLEBOOK");
+    for (let i=0; i<books.length; i++) {
+      const book = books[i];
+      const bname = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || "Unknown";
+      const chapters = book.getElementsByTagName("CHAPTER");
+      bibleDataLocal[bname] = bibleDataLocal[bname] || {};
+      for (let c=0;c<chapters.length;c++){
+        const chap = chapters[c];
+        const cnumber = chap.getAttribute("cnumber") || String(c+1);
+        bibleDataLocal[bname][cnumber] = bibleDataLocal[bname][cnumber] || {};
+        const verses = chap.getElementsByTagName("VERS");
+        for (let v=0; v<verses.length; v++){
+          const vers = verses[v];
+          const vnumber = vers.getAttribute("vnumber") || String(v+1);
+          const text = (vers.textContent || "").trim();
+          // store raw text (no trailing whitespace)
+          bibleDataLocal[bname][cnumber][vnumber] = text;
+        }
+      }
+    }
+
+    // Build normalized book map for matching user-spoken book names to XML book names:
+    const bookNamesSet = Object.keys(bibleDataLocal); // e.g. ["Genesis", "Exodus", ...]
+    return {bibleDataLocal, bookNamesSet};
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
 }
 
-prevBtn.addEventListener('click',()=>{if(currentRef&&currentRef.verse>1)showVerse({...currentRef,verse:currentRef.verse-1});});
-nextBtn.addEventListener('click',()=>{if(currentRef)showVerse({...currentRef,verse:currentRef.verse+1});});
-bigPlus.addEventListener('click',()=>{baseFontSize=Math.min(120,baseFontSize+8);verseBodyEl.style.fontSize=baseFontSize+'px';});
-bigMinus.addEventListener('click',()=>{baseFontSize=Math.max(18,baseFontSize-6);verseBodyEl.style.fontSize=baseFontSize+'px';});
+/* attempt to map the parsed.book (like "John" or "1 John") to the xml book name.
+We prefer exact match; fallback to case-insensitive; fallback to removing spaces; fallback to matching by starting substring.
+*/
+function resolveBookName(spokenBook) {
+  if (!bibleData) return spokenBook; // no local bible loaded
+  // if spokenBook already equals an XML book name return it
+  if (bibleData[spokenBook]) return spokenBook;
+  // try case-insensitive exact
+  const keys = Object.keys(bibleData);
+  const lower = spokenBook.toLowerCase();
+  for (const k of keys) if (k.toLowerCase() === lower) return k;
+  // try variants: remove spaces and dots
+  const stripped = lower.replace(/[\s\.]/g,'');
+  for (const k of keys) if (k.toLowerCase().replace(/[\s\.]/g,'') === stripped) return k;
+  // try startsWith (e.g. "Song" -> "Song of Solomon")
+  for (const k of keys) if (k.toLowerCase().startsWith(lower)) return k;
+  // fallback: return spokenBook (so caller can still attempt remote)
+  return spokenBook;
+}
+
+/* Show verse — prefers local bible if loaded, otherwise falls back to bible-api.com */
+async function showVerse(parsed){
+  try{
+    if(!parsed) { log("No reference to show."); return; }
+    const resolvedBook = bibleData ? resolveBookName(parsed.book) : parsed.book;
+    // try local bible first
+    if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
+      const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
+      verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse} — Local XML`;
+      verseBodyEl.innerText = text;
+      verseBodyEl.style.fontSize = baseFontSize + 'px';
+      currentRef = parsed;
+      log('Loaded from local XML: ' + resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
+      return;
+    }
+
+    // if local bible is loaded but the requested verse isn't found:
+    if (bibleData) {
+      // maybe chapter exists but verse missing -> helpful message
+      if (bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)]) {
+        log(`Verse ${parsed.verse} not found in ${resolvedBook} ${parsed.chapter}.`);
+      } else {
+        log(`Chapter ${parsed.chapter} not found in ${resolvedBook}.`);
+      }
+      // still continue to remote fallback if desired
+    }
+
+    // Fallback to remote bible-api.com if available
+    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+    log('Trying remote API for: ' + ref);
+    const resp = await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
+    if(!resp.ok) throw new Error('Remote API status ' + resp.status);
+    const data = await resp.json();
+    verseRefEl.innerText = data.reference + (data.translation_id ? ` — ${data.translation_id}` : '');
+    verseBodyEl.innerText = data.text.trim();
+    verseBodyEl.style.fontSize = baseFontSize + 'px';
+    currentRef = parsed;
+    log('Loaded from remote API.');
+  }catch(e){ log('Error: ' + (e && e.message ? e.message : e)); }
+}
+
+/* navigation buttons */
+prevBtn.addEventListener('click',()=>{ if(currentRef && currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); });
+nextBtn.addEventListener('click',()=>{ if(currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
+bigPlus.addEventListener('click',()=>{ baseFontSize=Math.min(120,baseFontSize+8); verseBodyEl.style.fontSize=baseFontSize+'px'; });
+bigMinus.addEventListener('click',()=>{ baseFontSize=Math.max(18,baseFontSize-6); verseBodyEl.style.fontSize=baseFontSize+'px'; });
 
 /* Theme toggle */
 themeBtn.addEventListener('click',()=>{
@@ -312,7 +356,7 @@ themeBtn.addEventListener('click',()=>{
 });
 
 /* SpeechRecognition */
-if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){log('SpeechRecognition not available.');startStopBtn.disabled=true;}
+if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){ log('SpeechRecognition not available.'); startStopBtn.disabled=true; }
 else{
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
   const recog=new SpeechRecognition();
@@ -320,75 +364,54 @@ else{
   let listening=false;
 
   startStopBtn.addEventListener('click',()=>{
-    if(!listening){recog.start();listening=true;startStopBtn.innerText='Stop';log('Listening…');}
-    else{recog.stop();}
+    try {
+      if(!listening){ recog.start(); listening=true; startStopBtn.innerText='Stop'; log('Listening…'); }
+      else { recog.stop(); }
+    } catch (err) { console.error(err); }
   });
 
   recog.onresult=async(ev)=>{
     const text=ev.results[0][0].transcript;
     transcriptEl.innerText='Heard: "'+text+'"';
     const parsed=parseReference(text);
-    if(parsed)await showVerse(parsed);else log('Could not parse reference.');
+    if(parsed) await showVerse(parsed);
+    else log('Could not parse reference.');
   };
-  recog.onend=()=>{listening=false;startStopBtn.innerText='Start';};
+  recog.onend=()=>{ listening=false; startStopBtn.innerText='Start'; };
 }
 
+/* keyboard navigation */
 document.addEventListener('keydown',(ev)=>{
-  if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1)showVerse({...currentRef,verse:currentRef.verse-1});
-  if(ev.key==="ArrowRight"&&currentRef)showVerse({...currentRef,verse:currentRef.verse+1});
+  // left/right arrows
+  if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1});
+  if(ev.key==="ArrowRight"&&currentRef) showVerse({...currentRef,verse:currentRef.verse+1});
+
+  // meta toggles (see below)
 });
 
-// === Meta / Windows key trigger for start/stop mic ===
-// Add this after startStopBtn is defined in your script.
-
+/* === Meta / Windows key trigger for start/stop mic === */
 (function() {
-  // simple debounce so holding key doesn't spam
   let lastToggle = 0;
   const DEBOUNCE_MS = 400;
-
   function tryToggleFromEvent(ev) {
     const now = Date.now();
     if (now - lastToggle < DEBOUNCE_MS) return;
     lastToggle = now;
-
-    // If we already have a Start/Stop button, use its existing behavior
-    if (!window.startStopBtn && !document.getElementById('startStopBtn')) return;
-    const btn = window.startStopBtn || document.getElementById('startStopBtn');
-
-    // If the button is disabled or not interactive, ignore
+    const btn = document.getElementById('startStopBtn');
     if (!btn || btn.disabled) return;
-
-    // Toggle by programmatic click so existing handlers run
     btn.click();
   }
-
   document.addEventListener('keydown', (ev) => {
     try {
-      // Normalize key detection:
-      // - ev.key === 'Meta' is true for Command on Mac and Windows key on Windows.
-      // - ev.metaKey is true when Meta is held (even if another key is pressed).
-      // Some browsers/OSes won't deliver a standalone Meta press — so we support combos too.
-
-      // 1) If browser actually delivers a pure Meta keydown (rare), toggle
       if (ev.key === 'm') {
-        ev.preventDefault?.(); // attempt to stop default OS behavior (may not always work)
-        tryToggleFromEvent(ev);
-        return;
+        ev.preventDefault?.();
+        tryToggleFromEvent(ev); return;
       }
-
-      // 2) Preferred reliable combos: Meta + Space, Meta + m (case-insensitive)
       if (ev.metaKey && (ev.code === 'Space' || ev.key.toLowerCase() === 'm')) {
-        // Prevent page scrolling on Meta+Space (or other default)
-        ev.preventDefault?.();
-        tryToggleFromEvent(ev);
-        return;
+        ev.preventDefault?.(); tryToggleFromEvent(ev); return;
       }
-
-      // 3) Optional fallback: Windows/Linux where Meta isn't available — use Ctrl+Alt+M
       if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 'm') {
-        ev.preventDefault?.();
-        tryToggleFromEvent(ev);
-        return;
+        ev.preventDefault?.(); tryToggleFromEvent(ev); return;
       }
     } catch (err) {
       console.warn('Meta key toggle error', err);
@@ -396,6 +419,66 @@ document.addEventListener('keydown',(ev)=>{
   }, { passive: false });
 })();
 
+/* ===== Load local XML: try fetch first, otherwise allow user to pick file ===== */
+
+async function tryLoadXmlFromServer(path='English_Catholic_XML.xml'){
+  log('Attempting to fetch local XML: ' + path);
+  try {
+    const resp = await fetch(path, {cache: "no-store"});
+    if (!resp.ok) throw new Error('Fetch status ' + resp.status);
+    const text = await resp.text();
+    const parsed = parseBibleXMLString(text);
+    if (!parsed) throw new Error('Failed to parse XML from server response');
+    bibleData = parsed.bibleDataLocal;
+    bibleBookNames = parsed.bookNamesSet;
+    log('Local XML loaded from server: ' + path + ' — Books: ' + Object.keys(bibleData).length);
+    return true;
+  } catch (e) {
+    console.warn('Server fetch failed:', e);
+    return false;
+  }
+}
+
+function promptUserToSelectXmlFile() {
+  log('Please select the English_Catholic_XML.xml file from disk.');
+  xmlFileInput.click();
+}
+
+xmlFileInput.addEventListener('change', async (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) { log('No file selected'); return; }
+  log('Reading file: ' + f.name);
+  try {
+    const txt = await f.text();
+    const parsed = parseBibleXMLString(txt);
+    if (!parsed) { log('Failed to parse selected XML file.'); return; }
+    bibleData = parsed.bibleDataLocal;
+    bibleBookNames = parsed.bookNamesSet;
+    log('Local XML loaded from file: ' + f.name + ' — Books: ' + Object.keys(bibleData).length);
+    // attempt to show previously requested currentRef if present
+    if (currentRef) showVerse(currentRef);
+  } catch (e) {
+    console.error(e); log('Error reading file: ' + (e && e.message ? e.message : e));
+  }
+});
+
+/* Load local button handler: tries fetch then fallback to file prompt */
+loadLocalBtn.addEventListener('click', async () => {
+  const ok = await tryLoadXmlFromServer();
+  if (!ok) promptUserToSelectXmlFile();
+});
+
+/* On load: try fetching automatically; if fails, leave it for user to click 'Load local XML' */
+(async function init(){
+  const ok = await tryLoadXmlFromServer();
+  if (!ok) {
+    log('Local XML not found on server. Click "Load local XML" to open a file from disk.');
+  } else {
+    // If fetch loaded successfully, optionally show a welcome verse
+    // e.g. Genesis 1:1
+    showVerse({book: "Genesis", chapter: 1, verse: 1});
+  }
+})();
 </script>
 </body>
 </html>
