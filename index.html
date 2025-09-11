@@ -52,8 +52,6 @@
       background-position: center;
     }
 
-
-
     h1 { margin:0; font-family:"Playfair Display",serif; font-size:22px }
     p.lead { margin:0; font-size:14px }
 
@@ -91,14 +89,28 @@
 
     .transcript, .log { font-size:14px; }
 
+    /* Make the verse-stage position relative so controls inside it can be absolutely placed */
     .verse-stage {
       margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;
       padding:22px;border-radius:12px;min-height:550px;text-align:center;
       width:90%;       /* 90% of the parent width */
       max-width:1250px; /* corrected to include px */
+      position: relative; /* NEW: for the maximize button */
+      overflow: hidden;
     }
     body[data-theme="dark"] .verse-stage { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .verse-stage { background: rgba(0,0,0,0.02) }
+
+    /* When verse-stage is logically "expanded" (we also request browser fullscreen) make the content larger */
+    .verse-stage.fullscreen {
+      width: 100vw !important;
+      height: 100vh !important;
+      min-height: unset !important;
+      padding: 40px !important;
+      border-radius: 0 !important;
+      display:flex;
+      align-items:center;justify-content:center;
+    }
 
     .verse-ref { font-family:"Playfair Display",serif;font-weight:700;font-size:34px;margin-bottom:8px }
     .verse-body { font-size:44px;line-height:1.15;font-weight:600 }
@@ -161,6 +173,33 @@
       100% { box-shadow: 0 0 0 0 rgba(214,0,0,0); }
     }
 
+    /* Maximize button inside verse-stage (top-right) */
+    .verse-max-btn {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      z-index: 30;
+      background: rgba(0,0,0,0.06);
+      border: 1px solid rgba(0,0,0,0.08);
+      padding: 8px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight:700;
+      backdrop-filter: blur(4px);
+    }
+    body[data-theme="dark"] .verse-max-btn {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.08);
+      color: var(--accent-dark);
+    }
+    body[data-theme="light"] .verse-max-btn {
+      background: rgba(0,0,0,0.04);
+      border-color: rgba(0,0,0,0.06);
+      color: var(--accent-light);
+    }
+
+    .verse-max-btn:focus { outline: 3px solid rgba(0,0,0,0.08); }
+
     /* accessible hidden label for screen-readers if you want one */
     .sr-only {
       position: absolute !important;
@@ -199,12 +238,18 @@
 
     <div class="panel">
       <div class="transcript" id="transcript"></div>
-      <div class="verse-stage">
+
+      <!-- Verse stage: maximize button is here -->
+      <div class="verse-stage" id="verseStage">
+        <!-- maximize button -->
+        <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
+
         <div>
           <div class="verse-ref" id="verseRef">Jesus Loves You</div>
           <div class="verse-body" id="verseBody"></div>
         </div>
       </div>
+
       <div class="log" id="log">Ready</div>
     </div>
   </div>
@@ -273,7 +318,6 @@ const BOOK_ALIASES = {
   "song of the three young men":"Daniel (Song of the Three Holy Children)","song of the three":"Daniel (Song of the Three Holy Children)"
 };
 
-
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
 function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
 
@@ -318,6 +362,9 @@ const bigMinus=document.getElementById('bigMinus');
 const themeBtn=document.getElementById('themeBtn');
 const loadLocalBtn=document.getElementById('loadLocalBtn');
 const xmlFileInput=document.getElementById('xmlFileInput');
+
+const verseStage = document.getElementById('verseStage');
+const verseMaxBtn = document.getElementById('verseMaxBtn');
 
 let currentRef=null, baseFontSize=44;
 function log(msg){ logEl.innerText = msg; console.log(msg); }
@@ -457,6 +504,73 @@ bigMinus.addEventListener('click',()=>{ baseFontSize=Math.max(18,baseFontSize-6)
 themeBtn.addEventListener('click',()=>{
   const body=document.body;
   body.dataset.theme = (body.dataset.theme==="dark" ? "light" : "dark");
+});
+
+/* Fullscreen / maximize handling for verseStage */
+function isDocumentInFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+
+async function requestFullscreen(element) {
+  if (element.requestFullscreen) return element.requestFullscreen();
+  if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen();
+  if (element.msRequestFullscreen) return element.msRequestFullscreen();
+  return Promise.reject(new Error('Fullscreen API not supported'));
+}
+
+async function exitFullscreen() {
+  if (document.exitFullscreen) return document.exitFullscreen();
+  if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+  if (document.msExitFullscreen) return document.msExitFullscreen();
+  return Promise.reject(new Error('Exit Fullscreen API not supported'));
+}
+
+function updateMaxButtonUI(isFull) {
+  verseMaxBtn.setAttribute('aria-pressed', String(!!isFull));
+  verseMaxBtn.title = isFull ? 'Exit fullscreen (Esc or F)' : 'Maximize (F)';
+  verseMaxBtn.innerText = isFull ? '⤡' : '⤢'; // different glyph for exit/enter
+  if (isFull) verseStage.classList.add('fullscreen'); else verseStage.classList.remove('fullscreen');
+}
+
+async function toggleFullscreen() {
+  try {
+    const inFs = isDocumentInFullscreen();
+    if (!inFs) {
+      // Prefer requesting fullscreen on the verseStage element
+      await requestFullscreen(verseStage);
+      updateMaxButtonUI(true);
+    } else {
+      // If already in fullscreen, exit (this may exit a different element too)
+      await exitFullscreen();
+      updateMaxButtonUI(false);
+    }
+  } catch (err) {
+    console.warn('Fullscreen toggle failed', err);
+    log('Fullscreen not available: ' + (err && err.message ? err.message : err));
+  }
+}
+
+// Hook the button
+verseMaxBtn.addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  toggleFullscreen();
+});
+
+// Listen for fullscreen change events (user pressed ESC or browser toggled)
+document.addEventListener('fullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
+document.addEventListener('webkitfullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
+document.addEventListener('msfullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
+
+// Also provide a keyboard shortcut: "F" toggles fullscreen when focused anywhere
+document.addEventListener('keydown', (ev) => {
+  // if user is typing in an input/textarea, do not intercept F
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
+
+  if (ev.key && ev.key.toLowerCase() === 'f') {
+    ev.preventDefault();
+    toggleFullscreen();
+  }
 });
 
 /* SpeechRecognition */
