@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Voice → Bible Verse (Presentation)</title>
+  <title>Bible Voice</title>
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 
@@ -45,9 +45,9 @@
   <div class="wrap">
     <div class="top">
       <div class="brand">
-        <div class="logo">VB</div>
+        <div class="logo">BV</div>
         <div>
-          <h1>Voice → Bible Verse</h1>
+          <h1>Bible Voice</h1>
           <p class="lead">Speak a reference. Use ← / → or buttons to navigate verses.</p>
         </div>
       </div>
@@ -76,13 +76,103 @@
 <script>
 /* ===== book mapping (subset for demo) ===== */
 const BOOK_ALIASES = {
-  "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
-  "psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","isaiah":"Isaiah","jeremiah":"Jeremiah",
-  "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts",
-  "romans":"Romans","1 corinthians":"1 Corinthians","2 corinthians":"2 Corinthians","galatians":"Galatians",
-  "ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians","hebrews":"Hebrews","james":"James",
-  "1 peter":"1 Peter","2 peter":"2 Peter","1 john":"1 John","2 john":"2 John","3 john":"3 John","jude":"Jude","revelation":"Revelation"
+  // Pentateuch
+  "genesis":"Genesis",
+  "exodus":"Exodus",
+  "leviticus":"Leviticus",
+  "numbers":"Numbers",
+  "deuteronomy":"Deuteronomy",
+
+  // History
+  "joshua":"Joshua",
+  "judges":"Judges",
+  "ruth":"Ruth",
+
+  "1 samuel":"1 Samuel","one samuel":"1 Samuel","first samuel":"1 Samuel",
+  "2 samuel":"2 Samuel","two samuel":"2 Samuel","second samuel":"2 Samuel",
+
+  "1 kings":"1 Kings","one kings":"1 Kings","first kings":"1 Kings",
+  "2 kings":"2 Kings","two kings":"2 Kings","second kings":"2 Kings",
+
+  "1 chronicles":"1 Chronicles","one chronicles":"1 Chronicles","first chronicles":"1 Chronicles",
+  "2 chronicles":"2 Chronicles","two chronicles":"2 Chronicles","second chronicles":"2 Chronicles",
+
+  "ezra":"Ezra",
+  "nehemiah":"Nehemiah",
+  "esther":"Esther",
+
+  // Wisdom / Poetry
+  "job":"Job",
+  "psalm":"Psalms","psalms":"Psalms",
+  "proverbs":"Proverbs",
+  "ecclesiastes":"Ecclesiastes",
+  "song of solomon":"Song of Solomon","song of songs":"Song of Solomon",
+
+  // Major Prophets
+  "isaiah":"Isaiah",
+  "jeremiah":"Jeremiah",
+  "lamentations":"Lamentations",
+  "ezekiel":"Ezekiel",
+  "daniel":"Daniel",
+
+  // Minor Prophets
+  "hosea":"Hosea",
+  "joel":"Joel",
+  "amos":"Amos",
+  "obadiah":"Obadiah",
+  "jonah":"Jonah",
+  "micah":"Micah",
+  "nahum":"Nahum",
+  "habakkuk":"Habakkuk",
+  "zephaniah":"Zephaniah",
+  "haggai":"Haggai",
+  "zechariah":"Zechariah",
+  "malachi":"Malachi",
+
+  // Gospels & Acts
+  "matthew":"Matthew",
+  "mark":"Mark",
+  "luke":"Luke",
+  "john":"John",
+  "acts":"Acts","acts of the apostles":"Acts",
+
+  // Pauline Epistles
+  "romans":"Romans",
+
+  "1 corinthians":"1 Corinthians","one corinthians":"1 Corinthians","first corinthians":"1 Corinthians",
+  "2 corinthians":"2 Corinthians","two corinthians":"2 Corinthians","second corinthians":"2 Corinthians",
+
+  "galatians":"Galatians",
+  "ephesians":"Ephesians",
+  "philippians":"Philippians",
+  "colossians":"Colossians",
+
+  "1 thessalonians":"1 Thessalonians","one thessalonians":"1 Thessalonians","first thessalonians":"1 Thessalonians",
+  "2 thessalonians":"2 Thessalonians","two thessalonians":"2 Thessalonians","second thessalonians":"2 Thessalonians",
+
+  "1 timothy":"1 Timothy","one timothy":"1 Timothy","first timothy":"1 Timothy",
+  "2 timothy":"2 Timothy","two timothy":"2 Timothy","second timothy":"2 Timothy",
+
+  "titus":"Titus",
+  "philemon":"Philemon",
+
+  // General Epistles
+  "hebrews":"Hebrews",
+  "james":"James",
+
+  "1 peter":"1 Peter","one peter":"1 Peter","first peter":"1 Peter",
+  "2 peter":"2 Peter","two peter":"2 Peter","second peter":"2 Peter",
+
+  "1 john":"1 John","one john":"1 John","first john":"1 John",
+  "2 john":"2 John","two john":"2 John","second john":"2 John",
+  "3 john":"3 John","three john":"3 John","third john":"3 John",
+
+  "jude":"Jude",
+
+  // Prophecy
+  "revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation"
 };
+
 
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
 function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
