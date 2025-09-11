@@ -268,7 +268,7 @@ document.addEventListener('keydown',(ev)=>{
       // Some browsers/OSes won't deliver a standalone Meta press — so we support combos too.
 
       // 1) If browser actually delivers a pure Meta keydown (rare), toggle
-      if (ev.key === 'Meta') {
+      if (ev.key === 'm') {
         ev.preventDefault?.(); // attempt to stop default OS behavior (may not always work)
         tryToggleFromEvent(ev);
         return;
