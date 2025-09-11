@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Voice → Bible Verse</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:24px}
+    .card{max-width:800px;margin:0 auto;padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+    button{font-size:18px;padding:12px 18px;border-radius:10px;border:1px solid #333;background:#fff;cursor:pointer}
+    button.listening{background:#ffdddd;border-color:#ff6b6b}
+    #transcript{margin-top:12px;font-weight:600}
+    #verse{margin-top:18px;padding:12px;background:#f7f7f7;border-radius:8px}
+    #log{margin-top:12px;color:#666;font-size:14px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Voice → Bible Verse (push-to-talk)</h1>
+    <p>Hold the button and speak a reference, e.g. “Genesis chapter three verse five” or “John eight twenty-three”.</p>
+
+    <button id="talkBtn">Hold to speak</button>
+    <div id="transcript"></div>
+    <div id="verse"></div>
+    <div id="log"></div>
+  </div>
+
+<script>
+/* ====== Simple book name mapping (extend as needed) ====== */
+const BOOK_ALIASES = {
+  "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
+  "joshua":"Joshua","judges":"Judges","ruth":"Ruth","1 samuel":"1 Samuel","one samuel":"1 Samuel","2 samuel":"2 Samuel","two samuel":"2 Samuel",
+  "1 kings":"1 Kings","one kings":"1 Kings","2 kings":"2 Kings","one kings":"1 Kings",
+  "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts",
+  "romans":"Romans","corinthians":"1 Corinthians","1 corinthians":"1 Corinthians","second corinthians":"2 Corinthians",
+  "galatians":"Galatians","ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians",
+  "revelation":"Revelation","psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","isaiah":"Isaiah","jeremiah":"Jeremiah"
+  // Add more mappings and variations ("first john","1 john", "john 1", etc.)
+};
+
+/* ====== Helpers ====== */
+function normalizeSpoken(s){
+  return s.trim()
+    .replace(/\bchapter\b/gi,' ')
+    .replace(/\bverse\b/gi,' ')
+    .replace(/\bverses\b/gi,' ')
+    .replace(/\bto\b/gi,'-')    // e.g., "verses five to seven" -> "5-7"
+    .replace(/\band\b/gi,' ')
+    .replace(/[,\.]/g,' ')
+    .replace(/\s+/g,' ')
+    .toLowerCase();
+}
+
+function wordsToNumber(word){
+  // very small helper for common words; extend if needed
+  const map = {
+    'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
+    'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'twenty':20,'thirty':30
+  };
+  if(!isNaN(Number(word))) return Number(word);
+  return map[word] || null;
+}
+
+/* ====== Parse a spoken reference into {book, chapter, verse, verseEnd?} ====== */
+function parseReference(spokenText){
+  const s = normalizeSpoken(spokenText);
+  // common forms handled:
+  // "Genesis 3 5", "genesis three five", "john 3:16", "1 john 4 8"
+  // Strategy: try to find a book alias at start; then remaining tokens are numbers/ ranges
+
+  // try matching book name at start (allow numeric prefix like "1 john")
+  const tokens = s.split(' ');
+  for(let len = Math.min(3, tokens.length); len>=1; len--){
+    const candidate = tokens.slice(0,len).join(' ');
+    if(BOOK_ALIASES[candidate]) {
+      const book = BOOK_ALIASES[candidate];
+      const rest = tokens.slice(len).join(' ').trim();
+      // extract numbers: could be "3 5" or "3:5" or "three five" or "three five to seven"
+      const rangeMatch = rest.match(/(\d+|[a-z]+)[\s\:,-]+(\d+|[a-z]+)/);
+      const singleMatch = rest.match(/(\d+|[a-z]+)/);
+      if(rangeMatch){
+        const chap = Number(rangeMatch[1]) || wordsToNumber(rangeMatch[1]);
+        const v1 = Number(rangeMatch[2]) || wordsToNumber(rangeMatch[2]);
+        if(chap && v1){
+          return {book, chapter:chap, verse:v1, verseEnd:v1};
+        }
+      }
+      // handle "chapter three verse five" normalized removed keywords, so rest maybe "3 5" or "three five"
+      const nums = rest.split(/[\s\-]+/).filter(x=>x.length>0);
+      if(nums.length>=2){
+        const chapN = Number(nums[0]) || wordsToNumber(nums[0]);
+        const verseN = Number(nums[1]) || wordsToNumber(nums[1]);
+        if(chapN && verseN) return {book, chapter:chapN, verse:verseN, verseEnd:verseN};
+      }
+      // handle "john 3:16"
+      const colonMatch = rest.match(/(\d+):(\d+)(?:-(\d+))?/);
+      if(colonMatch){
+        return {book, chapter: Number(colonMatch[1]), verse: Number(colonMatch[2]), verseEnd: colonMatch[3]?Number(colonMatch[3]):Number(colonMatch[2])};
+      }
+      // fallback: if only one number, treat as chapter (not ideal)
+      if(singleMatch){
+        const n = Number(singleMatch[1]) || wordsToNumber(singleMatch[1]);
+        if(n) return {book, chapter:n, verse:1, verseEnd:1};
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+/* ====== Fetch verse from a public API (example) ====== */
+async function fetchVerse(book, chapter, verse, verseEnd){
+  // Example using bible-api.com which accepts "Genesis 3:5"
+  // NOTE: for production pick an API with guaranteed availability or host your own Bible DB.
+  const ref = `${book} ${chapter}:${verse}` + (verseEnd && verseEnd>verse ? `-${verseEnd}` : '');
+  const url = `https://bible-api.com/${encodeURIComponent(ref)}`;
+  const resp = await fetch(url);
+  if(!resp.ok) throw new Error('Bible API returned ' + resp.status);
+  return resp.json(); // JSON structure: { reference, text, translation_id, verses: [...] }
+}
+
+/* ====== UI & SpeechRecognition wiring ====== */
+const talkBtn = document.getElementById('talkBtn');
+const transcriptEl = document.getElementById('transcript');
+const verseEl = document.getElementById('verse');
+const logEl = document.getElementById('log');
+
+if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
+  logEl.innerText = '⚠️ Your browser does not support the Web Speech API. Use Chrome on desktop for testing.';
+} else {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recog = new SpeechRecognition();
+  recog.lang = 'en-US';
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  recog.continuous = false;
+
+  let isListening = false;
+
+  talkBtn.addEventListener('mousedown', ()=> startListen());
+  talkBtn.addEventListener('touchstart', ()=> startListen());
+  talkBtn.addEventListener('mouseup', ()=> stopListen());
+  talkBtn.addEventListener('mouseleave', ()=> stopListen());
+  talkBtn.addEventListener('touchend', ()=> stopListen());
+
+  function startListen(){
+    try {
+      recog.start();
+      isListening = true;
+      talkBtn.classList.add('listening');
+      talkBtn.innerText = 'Listening...';
+      transcriptEl.innerText = '';
+      verseEl.innerText = '';
+      logEl.innerText = 'Speak now...';
+    } catch(e){
+      logEl.innerText = 'Error starting microphone: ' + e.message;
+    }
+  }
+  function stopListen(){
+    if(isListening) {
+      recog.stop();
+      isListening = false;
+      talkBtn.classList.remove('listening');
+      talkBtn.innerText = 'Hold to speak';
+      logEl.innerText = 'Processing...';
+    }
+  }
+
+  recog.onresult = async (ev) => {
+    const text = ev.results[0][0].transcript;
+    transcriptEl.innerText = 'Heard: "' + text + '"';
+    const parsed = parseReference(text);
+    if(!parsed){
+      logEl.innerText = 'Could not parse a Bible reference from the speech. Try saying: "Genesis chapter three verse five".';
+      return;
+    }
+    logEl.innerText = `Parsed: ${parsed.book} ${parsed.chapter}:${parsed.verse}` + (parsed.verseEnd && parsed.verseEnd>parsed.verse ? `-${parsed.verseEnd}` : '');
+    try {
+      const data = await fetchVerse(parsed.book, parsed.chapter, parsed.verse, parsed.verseEnd);
+      // show nicely
+      verseEl.innerHTML = `<strong>${data.reference} (${data.translation_id || 'text'})</strong><p style="white-space:pre-wrap">${data.text}</p>`;
+      logEl.innerText = 'Verse loaded.';
+    } catch(err){
+      logEl.innerText = 'Error fetching verse: ' + err.message + '. You may need a CORS proxy or to host your own Bible data.';
+    }
+  };
+
+  recog.onerror = (e) => {
+    logEl.innerText = 'Speech error: ' + e.error;
+    talkBtn.classList.remove('listening');
+    talkBtn.innerText = 'Hold to speak';
+  };
+
+  recog.onend = () => {
+    if(isListening){
+      isListening = false;
+      talkBtn.classList.remove('listening');
+      talkBtn.innerText = 'Hold to speak';
+    }
+  };
+}
+</script>
+</body>
+</html>
