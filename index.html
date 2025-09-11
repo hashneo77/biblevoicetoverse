@@ -112,6 +112,16 @@
       align-items:center;justify-content:center;
     }
 
+    /* Fullscreen background override by theme: exactly what the user asked for */
+    body[data-theme="light"] .verse-stage.fullscreen {
+      background: var(--bg-light) !important; /* white */
+      color: var(--text-light);
+    }
+    body[data-theme="dark"] .verse-stage.fullscreen {
+      background: #000000 !important; /* black */
+      color: var(--text-dark);
+    }
+
     .verse-ref { font-family:"Playfair Display",serif;font-weight:700;font-size:34px;margin-bottom:8px }
     .verse-body { font-size:44px;line-height:1.15;font-weight:600 }
 
@@ -173,10 +183,10 @@
       100% { box-shadow: 0 0 0 0 rgba(214,0,0,0); }
     }
 
-    /* Maximize button inside verse-stage (top-right) */
+    /* Maximize button inside verse-stage (moved slightly left to make room for rec button) */
     .verse-max-btn {
       position: absolute;
-      right: 14px;
+      right: 56px; /* moved to the left to free up the top-right corner */
       top: 14px;
       z-index: 30;
       background: rgba(0,0,0,0.06);
@@ -199,6 +209,37 @@
     }
 
     .verse-max-btn:focus { outline: 3px solid rgba(0,0,0,0.08); }
+
+    /* Recording indicator button (top-right). Hidden when not recording. */
+    .verse-rec-btn {
+      position: absolute;
+      right: 14px; /* top-right corner */
+      top: 14px;
+      z-index: 40;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: none; /* shown only when recording */
+      align-items: center;
+      justify-content: center;
+      font-weight:700;
+      cursor: default;
+      border: none;
+      box-shadow: 0 6px 18px rgba(214,0,0,0.18);
+      transform-origin: center;
+    }
+    /* Visual style for red recording button */
+    .verse-rec-btn.rec {
+      display: inline-flex;
+      background: linear-gradient(135deg,#ff4b4b,#d40000);
+      color: white;
+      animation: recPulse 1.2s infinite ease-in-out;
+    }
+    @keyframes recPulse {
+      0% { transform: scale(1); box-shadow: 0 6px 18px rgba(214,0,0,0.18); }
+      50% { transform: scale(1.05); box-shadow: 0 10px 22px rgba(214,0,0,0.22); }
+      100% { transform: scale(1); box-shadow: 0 6px 18px rgba(214,0,0,0.18); }
+    }
 
     /* accessible hidden label for screen-readers if you want one */
     .sr-only {
@@ -241,6 +282,9 @@
 
       <!-- Verse stage: maximize button is here -->
       <div class="verse-stage" id="verseStage">
+        <!-- Recording indicator (appears only during recording) -->
+        <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
+
         <!-- maximize button -->
         <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
 
@@ -365,6 +409,7 @@ const xmlFileInput=document.getElementById('xmlFileInput');
 
 const verseStage = document.getElementById('verseStage');
 const verseMaxBtn = document.getElementById('verseMaxBtn');
+const verseRecBtn = document.getElementById('verseRecBtn');
 
 let currentRef=null, baseFontSize=44;
 function log(msg){ logEl.innerText = msg; console.log(msg); }
@@ -446,10 +491,25 @@ function setRecordingState(isRecording){
     micIcon.classList.add('recording');
     micIcon.setAttribute('aria-hidden','false');
     micIcon.setAttribute('title','Recording — click Stop to end');
+    // show the red recording button in the top-right of verseStage
+    if (verseRecBtn) {
+      verseRecBtn.classList.add('rec');
+      verseRecBtn.setAttribute('aria-hidden','false');
+      verseRecBtn.removeAttribute('hidden');
+      verseRecBtn.style.display = 'inline-flex';
+      verseRecBtn.title = 'Recording';
+    }
   } else {
     micIcon.classList.remove('recording');
     micIcon.setAttribute('aria-hidden','true');
     micIcon.setAttribute('title','Not recording');
+    if (verseRecBtn) {
+      verseRecBtn.classList.remove('rec');
+      verseRecBtn.setAttribute('aria-hidden','true');
+      verseRecBtn.setAttribute('hidden','');
+      verseRecBtn.style.display = 'none';
+      verseRecBtn.title = '';
+    }
   }
 }
 
@@ -620,6 +680,7 @@ document.addEventListener('keydown',(ev)=>{
   if(ev.key==="ArrowRight"&&currentRef) showVerse({...currentRef,verse:currentRef.verse+1});
 
   // meta toggles (see below)
+
 });
 
 /* === Meta / Windows key trigger for start/stop mic === */
