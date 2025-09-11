@@ -200,5 +200,57 @@ if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
   };
 }
 </script>
+
+<script>
+let currentRef = null; // store {book, chapter, verse, verseEnd}
+
+/* Replace your fetchVerse call with this helper */
+async function showVerse(parsed) {
+  try {
+    currentRef = parsed; // store latest
+    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}` +
+      (parsed.verseEnd && parsed.verseEnd>parsed.verse ? `-${parsed.verseEnd}` : '');
+    const url = `https://bible-api.com/${encodeURIComponent(ref)}`;
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('Bible API returned ' + resp.status);
+    const data = await resp.json();
+    document.getElementById("verse").innerHTML =
+      `<strong>${data.reference} (${data.translation_id||'text'})</strong>
+       <p style="white-space:pre-wrap">${data.text}</p>`;
+    document.getElementById("log").innerText = 'Verse loaded.';
+  } catch(err){
+    document.getElementById("log").innerText = 'Error fetching verse: ' + err.message;
+  }
+}
+
+/* Update recog.onresult to call showVerse(parsed) instead of fetch directly */
+recog.onresult = async (ev) => {
+  const text = ev.results[0][0].transcript;
+  transcriptEl.innerText = 'Heard: "' + text + '"';
+  const parsed = parseReference(text);
+  if(!parsed){
+    log('Could not parse a Bible reference.');
+    return;
+  }
+  log(`Parsed: ${parsed.book} ${parsed.chapter}:${parsed.verse}`);
+  await showVerse(parsed);
+};
+
+/* Keyboard navigation: left/right arrow */
+document.addEventListener('keydown', (ev)=>{
+  if(!currentRef) return;
+  if(ev.key === "ArrowLeft"){  // previous verse
+    if(currentRef.verse > 1){
+      currentRef.verse -= 1;
+      showVerse(currentRef);
+    }
+  }
+  if(ev.key === "ArrowRight"){ // next verse
+    currentRef.verse += 1;
+    showVerse(currentRef);
+  }
+});
+</script>
+
 </body>
 </html>
