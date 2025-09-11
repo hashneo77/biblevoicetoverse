@@ -90,8 +90,8 @@
     .verse-stage {
       margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;
       padding:22px;border-radius:12px;min-height:550px;text-align:center;
-      width:100vw;     /* full viewport width */
-      margin-left:calc(-50vw + 50%); /* center align full-width breakout */
+      width:90%;       /* 90% of the parent width */
+      max-width:1250; /* don’t grow beyond this */
     }
     body[data-theme="dark"] .verse-stage { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .verse-stage { background: rgba(0,0,0,0.02) }
