@@ -354,6 +354,150 @@ clearBtn.addEventListener('click', ()=>{
   }, { passive: false });
 })();
 
+/* ---------------------------
+   New: parseAllReferences()
+   Finds all book/chapter:verse refs in the spoken text (in order)
+   --------------------------- */
+function parseAllReferences(raw) {
+  const norm = normalizeSpoken(raw);
+  if (!norm) return [];
+
+  const tokens = norm.split(/\s+/).filter(Boolean);
+  const results = [];
+
+  let idx = 0;
+  while (idx < tokens.length) {
+    // attempt a book match starting at idx
+    // detectBookFromTokens expects tokens array starting at 0, so pass slice
+    const slice = tokens.slice(idx);
+    const bookMatch = detectBookFromTokens(slice);
+    if (!bookMatch) { idx++; continue; }
+
+    const book = bookMatch.book;
+    const consumed = bookMatch.consumed;
+    let j = idx + consumed; // next token index after book
+
+    // Build a rest string from j to try colon or numeric matches easily
+    const restTokens = tokens.slice(j);
+    const restStr = restTokens.join(' ');
+
+    // 1) colon-form (3:16)
+    const colon = restStr.match(/^\s*(\d+)\s*:\s*(\d+)/);
+    if (colon) {
+      results.push({ book, chapter: Number(colon[1]), verse: Number(colon[2]), startIdx: idx });
+      // consume tokens corresponding to matched numbers (approx)
+      const consumedNumbers = colon[0].trim().split(/\s+/).length;
+      idx = j + consumedNumbers;
+      continue;
+    }
+
+    // 2) look for two consecutive number words/digits (chapter and verse)
+    // gather next up to 4 tokens and try to interpret as numbers
+    let numbersFound = [];
+    let lookAhead = Math.min(6, tokens.length - j);
+    for (let k = 0; k < lookAhead; k++) {
+      const candTokens = tokens.slice(j, j + k + 1).join(' ');
+      // try literal digits
+      const mDigits = candTokens.match(/^\d+$/);
+      if (mDigits) {
+        const n = Number(mDigits[0]);
+        numbersFound.push({ value: n, length: k + 1 });
+        // if we've now matched two numbers, stop
+        if (numbersFound.length >= 2) break;
+        // else continue to next token
+        continue;
+      }
+      // try wordsToNumber on the whole candTokens
+      const wn = wordsToNumber(candTokens);
+      if (wn !== null) {
+        numbersFound.push({ value: wn, length: k + 1 });
+        if (numbersFound.length >= 2) break;
+        continue;
+      }
+      // if this candidate can't be a number, but maybe the next tokens make a valid multiword number,
+      // continue looping; but if k==0 and not a number, skip to next token (we'll check single tokens later)
+    }
+
+    if (numbersFound.length >= 2) {
+      // first is chapter, second is verse
+      const chap = numbersFound[0].value;
+      const verse = numbersFound[1].value;
+      results.push({ book, chapter: chap, verse, startIdx: idx });
+      // advance idx by consumed tokens for both numbers
+      idx = j + numbersFound[0].length + numbersFound[1].length;
+      continue;
+    }
+
+    // 3) If only one number found -> treat as chapter (verse = 1)
+    // Check single token for digits or word numbers
+    if (restTokens.length > 0) {
+      const firstToken = restTokens[0];
+      let singleNum = null;
+      if (/^\d+$/.test(firstToken)) singleNum = Number(firstToken);
+      else {
+        const wn = wordsToNumber(firstToken);
+        if (wn !== null) singleNum = wn;
+      }
+      if (singleNum !== null) {
+        results.push({ book, chapter: singleNum, verse: 1, startIdx: idx });
+        idx = j + 1;
+        continue;
+      }
+    }
+
+    // nothing meaningful after this book; record the book alone? (optional)
+    // We'll skip single-book-only matches to avoid false positives
+    idx = j; // move past the book and continue scanning
+  }
+
+  return results;
+}
+
+/* ---------------------------
+   Modify onresult to pick the last match in the spoken text
+   Replace existing onresult handler with this version
+   --------------------------- */
+recog.onresult = (ev) => {
+  // build final and interim strings
+  let interim = '';
+  let finalText = '';
+  for (let i = 0; i < ev.results.length; i++) {
+    const res = ev.results[i];
+    if (res.isFinal) finalText += res[0].transcript + ' ';
+    else interim += res[0].transcript + ' ';
+  }
+  const display = (finalText + interim).trim();
+  transcriptEl.innerText = 'Heard: "' + display + '"';
+
+  // prefer final text chunk for parsing, otherwise use interim
+  const attemptSource = (finalText || interim).trim();
+  if (!attemptSource) return;
+
+  // find all references in the attemptSource (in order)
+  const parsedArray = parseAllReferences(attemptSource);
+
+  if (parsedArray.length === 0) {
+    // no reference found in this chunk; do nothing
+    return;
+  }
+
+  // pick the last reference found (the most recent in the utterance)
+  const parsed = parsedArray[parsedArray.length - 1];
+
+  // update the UI immediately
+  verseRefEl.innerText = parsed.book + ' ' + parsed.chapter + ':' + parsed.verse;
+
+  // fetch (debounced) only if new
+  const key = parsed.book + '|' + parsed.chapter + '|' + parsed.verse;
+  const now = Date.now();
+  if (key !== lastFoundRef && now - debounceFetch > FETCH_DEBOUNCE_MS) {
+    debounceFetch = now;
+    lastFoundRef = key;
+    fetchAndDisplayVerse(parsed).catch(e => log('Fetch error: ' + e.message));
+  }
+};
+
+
 /* Auto-start if you want (comment out if you prefer manual start) */
 // startRecognition();
 
