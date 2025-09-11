@@ -6,22 +6,49 @@
   <title>Bible Voice — Continuous</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   <style>
-    /* (Minimal styling from your original — omitted for brevity; use existing CSS if you prefer) */
-    body{font-family:Inter,system-ui,Arial;margin:20px;background:#071028;color:#e6eef6}
-    .verse-stage{padding:20px;border-radius:12px;background:rgba(255,255,255,0.02);min-height:220px}
-    .verse-ref{font-family:"Playfair Display",serif;font-weight:700;font-size:28px;margin-bottom:8px;color:#ffd166}
-    .verse-body{font-size:28px;line-height:1.25}
-    .controls{margin-bottom:10px}
-    #transcript{margin-bottom:10px;color:#9aa4b2}
-    #log{margin-top:10px;color:#9aa4b2}
-    button{padding:8px 12px;border-radius:8px;border:0;background:#1f2937;color:#fff;cursor:pointer}
+    body {
+      font-family: Inter, system-ui, Arial;
+      margin: 20px;
+      background: #071028;
+      color: #e6eef6;
+    }
+    .controls { margin-bottom: 12px }
+    button {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 0;
+      background: #1f2937;
+      color: #fff;
+      cursor: pointer;
+      margin-right: 6px;
+    }
+    #status { margin-left: 10px; color: #9aa4b2 }
+    #transcript { margin-bottom: 10px; color: #9aa4b2 }
+    .verse-stage {
+      padding: 20px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      min-height: 220px;
+    }
+    .verse-ref {
+      font-family: "Playfair Display", serif;
+      font-weight: 700;
+      font-size: 28px;
+      margin-bottom: 8px;
+      color: #ffd166;
+    }
+    .verse-body {
+      font-size: 28px;
+      line-height: 1.25;
+    }
+    #log { margin-top: 10px; color: #9aa4b2 }
   </style>
 </head>
-<body data-theme="dark">
+<body>
   <div class="controls">
     <button id="startStopBtn">Start</button>
     <button id="clearBtn">Clear</button>
-    <span id="status" style="margin-left:12px;color:#9aa4b2">Idle</span>
+    <span id="status">Idle</span>
   </div>
 
   <div id="transcript">Heard: —</div>
@@ -34,473 +61,164 @@
   <div id="log">Log: Ready</div>
 
 <script>
-/* ============================
-   Smart continuous speech -> verse parser
-   ============================ */
-
-/* Minimal book aliases (add your full BOOK_ALIASES here) */
+/* --- Bible book aliases (extend with your full list) --- */
 const BOOK_ALIASES = {
   "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
   "joshua":"Joshua","judges":"Judges","ruth":"Ruth",
   "1 samuel":"1 Samuel","one samuel":"1 Samuel","first samuel":"1 Samuel",
   "2 samuel":"2 Samuel","two samuel":"2 Samuel","second samuel":"2 Samuel",
-  "1 kings":"1 Kings","one kings":"1 Kings","first kings":"1 Kings",
-  "2 kings":"2 Kings","two kings":"2 Kings","second kings":"2 Kings",
-  "1 chronicles":"1 Chronicles","2 chronicles":"2 Chronicles",
+  "1 kings":"1 Kings","2 kings":"2 Kings","1 chronicles":"1 Chronicles","2 chronicles":"2 Chronicles",
   "ezra":"Ezra","nehemiah":"Nehemiah","esther":"Esther",
   "job":"Job","psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs",
   "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts",
   "romans":"Romans","1 corinthians":"1 Corinthians","2 corinthians":"2 Corinthians",
   "galatians":"Galatians","ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians",
-  "revelation":"Revelation","revelations":"Revelation","apocalypse":"Revelation"
-  // add the rest...
+  "revelation":"Revelation","revelations":"Revelation"
 };
 
-/* number words -> numbers (extended) */
+/* number words → numbers */
 const WORD_NUM = {
-  'zero':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
-  'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,
-  'twenty':20,'thirty':30,'forty':40,'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,
-  'first':1,'second':2,'third':3,'fourth':4,'fifth':5
+  'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
+  'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,
+  'seventeen':17,'eighteen':18,'nineteen':19,'twenty':20,'thirty':30,'forty':40,
+  'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,
+  'first':1,'second':2,'third':3
 };
 
-/* Utilities */
 function normalizeSpoken(s){
   if(!s) return '';
   return s.trim()
-          .replace(/\bchapter\b/gi,' ')
-          .replace(/\bverse\b/gi,' ')
-          .replace(/\bverse(s)?\b/gi,' ')
-          .replace(/[.,!?]/g,' ')
-          .replace(/\s+/g,' ')
-          .toLowerCase()
-          .trim();
+    .replace(/\bchapter\b/gi,' ')
+    .replace(/\bverse\b/gi,' ')
+    .replace(/[.,!?]/g,' ')
+    .replace(/\s+/g,' ')
+    .toLowerCase()
+    .trim();
 }
-
-/* Convert words like "twenty three" or "one hundred" (simple) */
 function wordsToNumber(phrase){
   if(!phrase) return null;
-  // quick numeric literal
   if(!isNaN(Number(phrase))) return Number(phrase);
-
-  const parts = phrase.split(/\s+/);
-  let total = 0, current = 0;
-  for(const p of parts){
-    if(WORD_NUM.hasOwnProperty(p)){
-      const val = WORD_NUM[p];
-      // tens handling
-      if(val >= 20 && val % 10 === 0){
-        current += val;
-      } else {
-        current += val;
-      }
-    } else if(p === 'hundred'){
-      current = current * 100 || 100;
-    } else {
-      // not a number word
-      return null;
-    }
-  }
-  total = total + current;
-  return total || null;
+  let total = 0;
+  phrase.split(/\s+/).forEach(p=>{
+    if(WORD_NUM[p]!=null) total+=WORD_NUM[p];
+  });
+  return total||null;
 }
-
-/* Book detection:
-   - Attempt longest-match of tokens against BOOK_ALIASES keys
-   - Also allow partial match: if a token sequence starts a known alias (e.g., "isa" -> "isaiah") */
 function detectBookFromTokens(tokens){
-  const maxLen = Math.min(4, tokens.length);
-  for(let len=maxLen; len>=1; len--){
-    const candidate = tokens.slice(0,len).join(' ');
-    if(BOOK_ALIASES[candidate]) return {book: BOOK_ALIASES[candidate], consumed: len};
-  }
-  // fuzzy start-match: try tokens[0..n] as prefix of alias
-  for(let len=maxLen; len>=1; len--){
-    const candidate = tokens.slice(0,len).join(' ');
-    const foundKey = Object.keys(BOOK_ALIASES).find(k => k.startsWith(candidate));
-    if(foundKey) return {book: BOOK_ALIASES[foundKey], consumed: len};
+  const maxLen=Math.min(3,tokens.length);
+  for(let len=maxLen;len>=1;len--){
+    const cand=tokens.slice(0,len).join(' ');
+    if(BOOK_ALIASES[cand]) return {book:BOOK_ALIASES[cand],consumed:len};
   }
   return null;
 }
 
-/* Parse a normalized spoken string and try to extract book, chapter, verse.
-   Accepts forms like:
-   - "john three sixteen"
-   - "john 3 16"
-   - "first john three sixteen"
-   - "john chapter three verse sixteen"
-   - "john 3" (we will treat missing verse as verse=1)
-*/
-function parseReferenceFromString(s){
-  const norm = normalizeSpoken(s);
-  if(!norm) return null;
-  const tokens = norm.split(' ').filter(Boolean);
-  if(tokens.length===0) return null;
-
-  // handle leading ordinals like "first", "second" before book name
-  if(['first','second','third','one','two','three'].includes(tokens[0]) && tokens.length>1){
-    // combine first + next (e.g., "first john" -> "1 john")
-    tokens[0] = tokens[0] + ' ' + tokens[1];
-    tokens.splice(1,1); // remove duplicate
-  }
-
-  // attempt book detection at start
-  const bookMatch = detectBookFromTokens(tokens);
-  if(!bookMatch) return null;
-  const book = bookMatch.book;
-  let i = bookMatch.consumed;
-
-  // remaining tokens -> look for two numbers (chapter and verse), or single number (chapter) or colon pattern
-  const rest = tokens.slice(i).join(' ');
-  // check for explicit colon e.g., "john 3:16" or "john 3:16-17"
-  const colonMatch = rest.match(/(\d+)\s*:\s*(\d+)/);
-  if(colonMatch){
-    return {book, chapter: parseInt(colonMatch[1],10), verse: parseInt(colonMatch[2],10)};
-  }
-
-  // split by non-digit/word boundary
-  const remTokens = tokens.slice(i);
-  if(remTokens.length===0){
-    // just book spoken — treat as chapter 1 verse 1 (or ignore)
-    return {book, chapter:1, verse:1};
-  }
-
-  // find numeric or word-number tokens
-  const numbers = [];
-  for(let t of remTokens){
-    // remove filler words
-    if(['and','the','a','of','to','in'].includes(t)) continue;
-    // if token contains digits
-    if(/\d+/.test(t)){
-      const num = parseInt(t.match(/\d+/)[0],10);
-      numbers.push(num);
-    } else {
-      const wn = wordsToNumber(t);
-      if(wn !== null) numbers.push(wn);
+/* --- Parse all references from a spoken string --- */
+function parseAllReferences(raw){
+  const norm=normalizeSpoken(raw);
+  if(!norm) return [];
+  const tokens=norm.split(/\s+/).filter(Boolean);
+  const results=[];
+  let idx=0;
+  while(idx<tokens.length){
+    const slice=tokens.slice(idx);
+    const bookMatch=detectBookFromTokens(slice);
+    if(!bookMatch){ idx++; continue; }
+    const book=bookMatch.book;
+    let j=idx+bookMatch.consumed;
+    const rest=tokens.slice(j).join(' ');
+    const colon=rest.match(/(\d+)\s*:\s*(\d+)/);
+    if(colon){
+      results.push({book,chapter:+colon[1],verse:+colon[2]});
+      idx=j+colon[0].split(/\s+/).length; continue;
+    }
+    const nums=[];
+    for(let k=0;k<3 && j+k<tokens.length;k++){
+      const t=tokens[j+k];
+      if(/\d+/.test(t)) nums.push(+t);
       else {
-        // maybe a multi-word number like "twenty three" -> try to combine upcoming tokens
-        // attempt to join current + next if next is number word
-        const two = remTokens.slice(remTokens.indexOf(t), remTokens.indexOf(t)+2).join(' ');
-        const twoNum = wordsToNumber(two);
-        if(twoNum !== null){
-          numbers.push(twoNum);
-        } else {
-          // skip unknown filler word
-        }
+        const wn=wordsToNumber(t);
+        if(wn) nums.push(wn);
       }
+      if(nums.length>=2) break;
     }
-    if(numbers.length>=2) break;
+    if(nums.length>=2){ results.push({book,chapter:nums[0],verse:nums[1]}); idx=j+2; continue; }
+    if(nums.length===1){ results.push({book,chapter:nums[0],verse:1}); idx=j+1; continue; }
+    idx=j;
   }
-
-  if(numbers.length===0) return null;
-  if(numbers.length===1) return {book, chapter:numbers[0], verse:1};
-  return {book, chapter:numbers[0], verse:numbers[1]};
-}
-
-/* === DOM references === */
-const startStopBtn = document.getElementById('startStopBtn');
-const clearBtn = document.getElementById('clearBtn');
-const transcriptEl = document.getElementById('transcript');
-const verseRefEl = document.getElementById('verseRef');
-const verseBodyEl = document.getElementById('verseBody');
-const logEl = document.getElementById('log');
-const statusEl = document.getElementById('status');
-
-/* Recognition setup */
-let recog = null;
-let listening = false;
-let lastFoundRef = null;     // avoid refetching same verse repeatedly
-let debounceFetch = 0;       // timestamp guard
-const FETCH_DEBOUNCE_MS = 1200;
-
-/* Create and configure recognition instance */
-function createRecognition(){
-  if(!(window.SpeechRecognition || window.webkitSpeechRecognition)) return null;
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const r = new SpeechRecognition();
-  r.lang = 'en-US';
-  r.interimResults = true;     // get interim results for real-time parsing
-  r.maxAlternatives = 1;
-  r.continuous = true;         // continuous listening (browser-dependent)
-  return r;
-}
-
-/* Start continuously monitoring (with auto-restart onend) */
-function startRecognition(){
-  if(listening) return;
-  recog = createRecognition();
-  if(!recog){
-    log('SpeechRecognition not supported in this browser.');
-    startStopBtn.disabled = true;
-    return;
-  }
-
-  recog.onstart = () => { listening = true; statusEl.innerText = 'Listening…'; startStopBtn.innerText = 'Stop'; log('Listening started.'); };
-  recog.onerror = (ev) => { log('Recognition error: ' + (ev.error || ev.message)); };
-  recog.onend = (ev) => {
-    // The browser may stop recognition; auto-restart for continuous monitoring
-    listening = false;
-    statusEl.innerText = 'Stopped — restarting…';
-    startStopBtn.innerText = 'Start';
-    log('Recognition ended; attempting restart shortly.');
-    // restart with a small delay to avoid tight restart loops
-    setTimeout(() => { try { startRecognition(); } catch(e){ log('Restart failed: '+e.message); } }, 350);
-  };
-
-  recog.onresult = (ev) => {
-    // Collect interim and final transcripts concatenated
-    let interim = '';
-    let finalText = '';
-    for(let i = 0; i < ev.results.length; i++){
-      const res = ev.results[i];
-      if(res.isFinal) finalText += res[0].transcript + ' ';
-      else interim += res[0].transcript + ' ';
-    }
-    const display = (finalText + interim).trim();
-    transcriptEl.innerText = 'Heard: "' + display + '"';
-    // Try to parse from the most recent chunk (prefer final, else interim)
-    const attemptSource = (finalText || interim).trim();
-    if(attemptSource) {
-      const parsed = parseReferenceFromString(attemptSource);
-      if(parsed){
-        // show immediately so UI is responsive
-        verseRefEl.innerText = parsed.book + ' ' + parsed.chapter + ':' + parsed.verse;
-        // only fetch when it's a new ref and debounced
-        const key = parsed.book + '|' + parsed.chapter + '|' + parsed.verse;
-        const now = Date.now();
-        if(key !== lastFoundRef && now - debounceFetch > FETCH_DEBOUNCE_MS){
-          debounceFetch = now;
-          lastFoundRef = key;
-          fetchAndDisplayVerse(parsed).catch(e => log('Fetch error: '+e.message));
-        }
-      } else {
-        // if nothing parsed, we don't change the previous displayed verseRef, but log
-        // optionally clear a "partial" indicator
-        // verseRefEl.innerText = 'Listening for references…';
-      }
-    }
-  };
-
-  try {
-    recog.start();
-  } catch (e) {
-    log('Start error: ' + e.message);
-  }
-}
-
-/* Stop recognition gracefully */
-function stopRecognition(){
-  if(!recog) return;
-  try { recog.onresult = null; recog.onend = null; recog.onerror = null; recog.stop(); } catch(e){}
-  listening = false;
-  statusEl.innerText = 'Idle';
-  startStopBtn.innerText = 'Start';
-  log('Stopped.');
-}
-
-/* Fetch verse from API (same as your original showVerse but returns json) */
-async function fetchAndDisplayVerse(parsed){
-  try{
-    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
-    log('Fetching ' + ref + ' …');
-    verseBodyEl.innerText = 'Loading…';
-    const resp = await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
-    if(!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    verseRefEl.innerText = data.reference + (data.translation_id ? ` — ${data.translation_id}` : '');
-    verseBodyEl.innerText = data.text.trim();
-    statusEl.innerText = 'Found: ' + parsed.book + ' ' + parsed.chapter + ':' + parsed.verse;
-    log('Verse loaded.');
-  }catch(e){
-    verseBodyEl.innerText = '';
-    log('Error loading verse: ' + e.message);
-  }
-}
-
-/* UI helpers */
-function log(msg){ logEl.innerText = 'Log: ' + msg; }
-
-/* Hook up buttons */
-startStopBtn.addEventListener('click', ()=>{
-  if(!listening) startRecognition();
-  else stopRecognition();
-});
-
-clearBtn.addEventListener('click', ()=>{
-  transcriptEl.innerText = 'Heard: —';
-  verseRefEl.innerText = 'Ready';
-  verseBodyEl.innerText = '';
-  lastFoundRef = null;
-  log('Cleared.');
-});
-
-/* Meta / keyboard toggle: keep your previous logic (Meta/Meta+M/Ctrl+Alt+M) */
-(function(){
-  let lastToggle = 0, DEBOUNCE_MS = 400;
-  function tryToggleFromEvent(ev){
-    const now = Date.now();
-    if(now - lastToggle < DEBOUNCE_MS) return;
-    lastToggle = now;
-    const btn = document.getElementById('startStopBtn');
-    if(!btn || btn.disabled) return;
-    btn.click();
-  }
-  document.addEventListener('keydown', (ev) => {
-    try {
-      if(ev.key.toLowerCase() === 'm' && ev.metaKey) { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
-      if(ev.metaKey && (ev.code === 'Space' || ev.key.toLowerCase() === 'm')) { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
-      if(ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 'm') { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
-    } catch(e){ console.warn(e); }
-  }, { passive: false });
-})();
-
-/* ---------------------------
-   New: parseAllReferences()
-   Finds all book/chapter:verse refs in the spoken text (in order)
-   --------------------------- */
-function parseAllReferences(raw) {
-  const norm = normalizeSpoken(raw);
-  if (!norm) return [];
-
-  const tokens = norm.split(/\s+/).filter(Boolean);
-  const results = [];
-
-  let idx = 0;
-  while (idx < tokens.length) {
-    // attempt a book match starting at idx
-    // detectBookFromTokens expects tokens array starting at 0, so pass slice
-    const slice = tokens.slice(idx);
-    const bookMatch = detectBookFromTokens(slice);
-    if (!bookMatch) { idx++; continue; }
-
-    const book = bookMatch.book;
-    const consumed = bookMatch.consumed;
-    let j = idx + consumed; // next token index after book
-
-    // Build a rest string from j to try colon or numeric matches easily
-    const restTokens = tokens.slice(j);
-    const restStr = restTokens.join(' ');
-
-    // 1) colon-form (3:16)
-    const colon = restStr.match(/^\s*(\d+)\s*:\s*(\d+)/);
-    if (colon) {
-      results.push({ book, chapter: Number(colon[1]), verse: Number(colon[2]), startIdx: idx });
-      // consume tokens corresponding to matched numbers (approx)
-      const consumedNumbers = colon[0].trim().split(/\s+/).length;
-      idx = j + consumedNumbers;
-      continue;
-    }
-
-    // 2) look for two consecutive number words/digits (chapter and verse)
-    // gather next up to 4 tokens and try to interpret as numbers
-    let numbersFound = [];
-    let lookAhead = Math.min(6, tokens.length - j);
-    for (let k = 0; k < lookAhead; k++) {
-      const candTokens = tokens.slice(j, j + k + 1).join(' ');
-      // try literal digits
-      const mDigits = candTokens.match(/^\d+$/);
-      if (mDigits) {
-        const n = Number(mDigits[0]);
-        numbersFound.push({ value: n, length: k + 1 });
-        // if we've now matched two numbers, stop
-        if (numbersFound.length >= 2) break;
-        // else continue to next token
-        continue;
-      }
-      // try wordsToNumber on the whole candTokens
-      const wn = wordsToNumber(candTokens);
-      if (wn !== null) {
-        numbersFound.push({ value: wn, length: k + 1 });
-        if (numbersFound.length >= 2) break;
-        continue;
-      }
-      // if this candidate can't be a number, but maybe the next tokens make a valid multiword number,
-      // continue looping; but if k==0 and not a number, skip to next token (we'll check single tokens later)
-    }
-
-    if (numbersFound.length >= 2) {
-      // first is chapter, second is verse
-      const chap = numbersFound[0].value;
-      const verse = numbersFound[1].value;
-      results.push({ book, chapter: chap, verse, startIdx: idx });
-      // advance idx by consumed tokens for both numbers
-      idx = j + numbersFound[0].length + numbersFound[1].length;
-      continue;
-    }
-
-    // 3) If only one number found -> treat as chapter (verse = 1)
-    // Check single token for digits or word numbers
-    if (restTokens.length > 0) {
-      const firstToken = restTokens[0];
-      let singleNum = null;
-      if (/^\d+$/.test(firstToken)) singleNum = Number(firstToken);
-      else {
-        const wn = wordsToNumber(firstToken);
-        if (wn !== null) singleNum = wn;
-      }
-      if (singleNum !== null) {
-        results.push({ book, chapter: singleNum, verse: 1, startIdx: idx });
-        idx = j + 1;
-        continue;
-      }
-    }
-
-    // nothing meaningful after this book; record the book alone? (optional)
-    // We'll skip single-book-only matches to avoid false positives
-    idx = j; // move past the book and continue scanning
-  }
-
   return results;
 }
 
-/* ---------------------------
-   Modify onresult to pick the last match in the spoken text
-   Replace existing onresult handler with this version
-   --------------------------- */
-recog.onresult = (ev) => {
-  // build final and interim strings
-  let interim = '';
-  let finalText = '';
-  for (let i = 0; i < ev.results.length; i++) {
-    const res = ev.results[i];
-    if (res.isFinal) finalText += res[0].transcript + ' ';
-    else interim += res[0].transcript + ' ';
-  }
-  const display = (finalText + interim).trim();
-  transcriptEl.innerText = 'Heard: "' + display + '"';
+/* --- DOM --- */
+const startStopBtn=document.getElementById('startStopBtn');
+const clearBtn=document.getElementById('clearBtn');
+const transcriptEl=document.getElementById('transcript');
+const verseRefEl=document.getElementById('verseRef');
+const verseBodyEl=document.getElementById('verseBody');
+const logEl=document.getElementById('log');
+const statusEl=document.getElementById('status');
 
-  // prefer final text chunk for parsing, otherwise use interim
-  const attemptSource = (finalText || interim).trim();
-  if (!attemptSource) return;
+let recog=null,listening=false,lastFoundRef=null,debounceFetch=0;
+const FETCH_DEBOUNCE_MS=1200;
 
-  // find all references in the attemptSource (in order)
-  const parsedArray = parseAllReferences(attemptSource);
+function log(msg){ logEl.innerText='Log: '+msg; }
 
-  if (parsedArray.length === 0) {
-    // no reference found in this chunk; do nothing
-    return;
-  }
+/* SpeechRecognition setup */
+function createRecognition(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR) return null;
+  const r=new SR();
+  r.lang='en-US'; r.interimResults=true; r.maxAlternatives=1; r.continuous=true;
+  return r;
+}
+function startRecognition(){
+  if(listening) return;
+  recog=createRecognition();
+  if(!recog){ log('SpeechRecognition not supported'); return; }
+  recog.onstart=()=>{listening=true;statusEl.innerText='Listening…';startStopBtn.innerText='Stop';};
+  recog.onend=()=>{listening=false;statusEl.innerText='Restarting…';startStopBtn.innerText='Start';setTimeout(()=>startRecognition(),500);};
+  recog.onresult=(ev)=>{
+    let interim='',finalText='';
+    for(let i=0;i<ev.results.length;i++){
+      const res=ev.results[i];
+      if(res.isFinal) finalText+=res[0].transcript+' ';
+      else interim+=res[0].transcript+' ';
+    }
+    const display=(finalText+interim).trim();
+    transcriptEl.innerText='Heard: "'+display+'"';
+    const parsedArr=parseAllReferences(display);
+    if(parsedArr.length){
+      const parsed=parsedArr[parsedArr.length-1]; // pick last match
+      verseRefEl.innerText=parsed.book+' '+parsed.chapter+':'+parsed.verse;
+      const key=parsed.book+'|'+parsed.chapter+'|'+parsed.verse;
+      const now=Date.now();
+      if(key!==lastFoundRef && now-debounceFetch>FETCH_DEBOUNCE_MS){
+        debounceFetch=now;lastFoundRef=key;
+        fetchVerse(parsed);
+      }
+    }
+  };
+  recog.start();
+}
+function stopRecognition(){
+  if(recog) try{recog.stop();}catch(e){}
+  listening=false;statusEl.innerText='Idle';startStopBtn.innerText='Start';
+}
+async function fetchVerse(ref){
+  try{
+    verseBodyEl.innerText='Loading…';
+    const r=`${ref.book} ${ref.chapter}:${ref.verse}`;
+    const resp=await fetch(`https://bible-api.com/${encodeURIComponent(r)}`);
+    const data=await resp.json();
+    verseRefEl.innerText=data.reference+(data.translation_id?` — ${data.translation_id}`:'');
+    verseBodyEl.innerText=data.text.trim();
+    statusEl.innerText='Found: '+r; log('Verse loaded.');
+  }catch(e){ log('Fetch error: '+e.message); }
+}
 
-  // pick the last reference found (the most recent in the utterance)
-  const parsed = parsedArray[parsedArray.length - 1];
-
-  // update the UI immediately
-  verseRefEl.innerText = parsed.book + ' ' + parsed.chapter + ':' + parsed.verse;
-
-  // fetch (debounced) only if new
-  const key = parsed.book + '|' + parsed.chapter + '|' + parsed.verse;
-  const now = Date.now();
-  if (key !== lastFoundRef && now - debounceFetch > FETCH_DEBOUNCE_MS) {
-    debounceFetch = now;
-    lastFoundRef = key;
-    fetchAndDisplayVerse(parsed).catch(e => log('Fetch error: ' + e.message));
-  }
-};
-
-
-/* Auto-start if you want (comment out if you prefer manual start) */
-// startRecognition();
-
+/* buttons */
+startStopBtn.addEventListener('click',()=>{if(!listening)startRecognition();else stopRecognition();});
+clearBtn.addEventListener('click',()=>{transcriptEl.innerText='Heard: —';verseRefEl.innerText='Ready';verseBodyEl.innerText='';lastFoundRef=null;});
 </script>
 </body>
 </html>
