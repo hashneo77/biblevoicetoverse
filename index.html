@@ -410,7 +410,7 @@ async function showVerse(parsed){
     // try local bible first
     if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
       const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
-      verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse} — Local XML`;
+      verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`;
       verseBodyEl.innerText = text;
       verseBodyEl.style.fontSize = baseFontSize + 'px';
       currentRef = parsed;
