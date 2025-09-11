@@ -89,7 +89,7 @@
 
     .verse-stage {
       margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;
-      padding:22px;border-radius:12px;min-height:280px;text-align:center;
+      padding:22px;border-radius:12px;min-height:550px;text-align:center;
     }
     body[data-theme="dark"] .verse-stage { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .verse-stage { background: rgba(0,0,0,0.02) }
@@ -122,20 +122,20 @@
 
       <div class="controls">
         <button id="startStopBtn" class="btn">Start</button>
-        <button id="prevBtn" class="btn secondary icon">◀ Prev</button>
-        <button id="nextBtn" class="btn secondary icon">Next ▶</button>
+        <button id="prevBtn" class="btn secondary icon">◀</button>
+        <button id="nextBtn" class="btn secondary icon">▶</button>
         <button id="bigMinus" class="btn secondary">A-</button>
         <button id="bigPlus" class="btn">A+</button>
-        <button id="themeBtn" class="btn">🌞/🌙 Toggle Theme</button>
+        <button id="themeBtn" class="btn">🌞/🌙</button>
       </div>
     </div>
 
     <div class="panel">
-      <div class="transcript" id="transcript">Heard: —</div>
+      <div class="transcript" id="transcript"></div>
       <div class="verse-stage">
         <div>
           <div class="verse-ref" id="verseRef">No verse loaded</div>
-          <div class="verse-body" id="verseBody">Say "Genesis chapter 3 verse 6"</div>
+          <div class="verse-body" id="verseBody"></div>
         </div>
       </div>
       <div class="log" id="log">Ready</div>
