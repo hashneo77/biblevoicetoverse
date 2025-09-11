@@ -3,207 +3,144 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Bible Voice</title>
+  <title>Voice → Bible Verse (Presentation)</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+
   <style>
-    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:24px;background:#fafafa}
-    .card{max-width:920px;margin:12px auto;padding:20px;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.06)}
-    button{font-size:18px;padding:12px 18px;border-radius:10px;border:1px solid #333;background:#fff;cursor:pointer}
-    button.listening{background:#ffefef;border-color:#ff6b6b}
-    #transcript{margin-top:12px;font-weight:600}
-    #verse{margin-top:18px;padding:14px;background:#f7f7f7;border-radius:8px;min-height:60px}
-    #log{margin-top:12px;color:#666;font-size:14px;white-space:pre-wrap}
-    .hint{margin-top:8px;color:#444;font-size:14px}
+    :root{
+      --bg: #0f1724;
+      --accent: #ffd166;
+      --muted: #9aa4b2;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#071028 0%, #0f1724 100%);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial;color:#e6eef6}
+    .wrap{max-width:1200px;margin:28px auto;padding:20px}
+    .top{display:flex;gap:18px;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .brand{display:flex;gap:14px;align-items:center}
+    .logo{width:72px;height:72px;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:800;color:white;font-family:"Playfair Display",serif;font-size:28px}
+    h1{margin:0;font-family:"Playfair Display",serif;font-size:22px;color:var(--accent)}
+    p.lead{margin:0;color:var(--muted);font-size:14px}
+
+    .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+    .btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);color:var(--accent);padding:10px 16px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn.secondary{color:#e6eef6}
+    .btn.icon{font-size:18px;padding:10px 12px}
+
+    .panel{background:rgba(255,255,255,0.02);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;align-items:center}
+
+    .transcript{color:var(--muted);font-size:14px}
+    .log{color:var(--muted);font-size:14px}
+
+    .verse-stage{margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;padding:22px;border-radius:12px;background:rgba(255,255,255,0.02);min-height:280px;text-align:center}
+    .verse-ref{font-family:"Playfair Display",serif;color:var(--accent);font-weight:700;font-size:34px;margin-bottom:8px}
+    .verse-body{font-size:44px;line-height:1.15;font-weight:600;color:#f7fbff;text-shadow:0 6px 20px rgba(0,0,0,0.6)}
+
+    @media (max-width:900px){
+      .verse-ref{font-size:26px}
+      .verse-body{font-size:28px}
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Voice → Bible Verse (push-to-talk + ← / → keys)</h1>
-    <button id="startStopBtn">Start</button>
-    <div class="hint">Use ← for previous verse, → for next verse (when a verse is loaded).</div>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <div class="logo">VB</div>
+        <div>
+          <h1>Voice → Bible Verse</h1>
+          <p class="lead">Speak a reference. Use ← / → or buttons to navigate verses.</p>
+        </div>
+      </div>
 
-    <div id="transcript"></div>
-    <div id="verse"></div>
-    <div id="log"></div>
+      <div class="controls">
+        <button id="startStopBtn" class="btn">Start</button>
+        <button id="prevBtn" class="btn secondary icon">◀ Prev</button>
+        <button id="nextBtn" class="btn secondary icon">Next ▶</button>
+        <button id="bigMinus" class="btn secondary">A-</button>
+        <button id="bigPlus" class="btn">A+</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="transcript" id="transcript">Heard: —</div>
+      <div class="verse-stage">
+        <div>
+          <div class="verse-ref" id="verseRef">No verse loaded</div>
+          <div class="verse-body" id="verseBody">Say "Genesis chapter 3 verse 6"</div>
+        </div>
+      </div>
+      <div class="log" id="log">Ready</div>
+    </div>
   </div>
 
 <script>
-/* ===== book mapping - extend as needed ===== */
+/* ===== book mapping (subset for demo) ===== */
 const BOOK_ALIASES = {
   "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
-  "joshua":"Joshua","judges":"Judges","ruth":"Ruth","1 samuel":"1 Samuel","one samuel":"1 Samuel","2 samuel":"2 Samuel",
-  "1 kings":"1 Kings","one kings":"1 Kings","2 kings":"2 Kings","one kings":"1 Kings",
+  "psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","isaiah":"Isaiah","jeremiah":"Jeremiah",
   "matthew":"Matthew","mark":"Mark","luke":"Luke","john":"John","acts":"Acts",
-  "romans":"Romans","1 corinthians":"1 Corinthians","2 corinthians":"2 Corinthians",
-  "galatians":"Galatians","ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians",
-  "psalm":"Psalms","psalms":"Psalms","proverbs":"Proverbs","isaiah":"Isaiah","jeremiah":"Jeremiah","revelation":"Revelation"
+  "romans":"Romans","1 corinthians":"1 Corinthians","2 corinthians":"2 Corinthians","galatians":"Galatians",
+  "ephesians":"Ephesians","philippians":"Philippians","colossians":"Colossians","hebrews":"Hebrews","james":"James",
+  "1 peter":"1 Peter","2 peter":"2 Peter","1 john":"1 John","2 john":"2 John","3 john":"3 John","jude":"Jude","revelation":"Revelation"
 };
 
-/* ===== helpers ===== */
-function normalizeSpoken(s){
-  return s.trim()
-    .replace(/\bchapter\b/gi,' ')
-    .replace(/\bverse\b/gi,' ')
-    .replace(/\bverses\b/gi,' ')
-    .replace(/\bto\b/gi,'-')
-    .replace(/\band\b/gi,' ')
-    .replace(/[,\.]/g,' ')
-    .replace(/\s+/g,' ')
-    .toLowerCase();
-}
-function wordsToNumber(w){
-  const m = {'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'twenty':20,'thirty':30};
-  if(!isNaN(Number(w))) return Number(w);
-  return m[w]||null;
-}
+function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
+function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
 
-/* parse spoken reference -> {book,chapter,verse,verseEnd?} */
-function parseReference(spokenText){
-  const s = normalizeSpoken(spokenText);
-  const tokens = s.split(' ').filter(Boolean);
-  for(let len = Math.min(3,tokens.length); len>=1; len--){
+function parseReference(text){
+  const s = normalizeSpoken(text);const tokens = s.split(' ').filter(Boolean);
+  for(let len=Math.min(3,tokens.length);len>=1;len--){
     const candidate = tokens.slice(0,len).join(' ');
     if(BOOK_ALIASES[candidate]){
-      const book = BOOK_ALIASES[candidate];
-      const rest = tokens.slice(len).join(' ').trim();
-      const colon = rest.match(/(\d+):(\d+)(?:-(\d+))?/);
-      if(colon) return {book, chapter: Number(colon[1]), verse: Number(colon[2]), verseEnd: colon[3]?Number(colon[3]):Number(colon[2])};
-      const nums = rest.split(/[\s\-]+/).filter(Boolean);
-      if(nums.length>=2){
-        const chap = Number(nums[0]) || wordsToNumber(nums[0]);
-        const v = Number(nums[1]) || wordsToNumber(nums[1]);
-        if(chap && v) return {book, chapter:chap, verse:v, verseEnd:v};
-      }
-      const single = rest.match(/(\d+|[a-z]+)/);
-      if(single){
-        const n = Number(single[1]) || wordsToNumber(single[1]);
-        if(n) return {book, chapter:n, verse:1, verseEnd:1};
-      }
-      return null;
+      const book = BOOK_ALIASES[candidate];const rest = tokens.slice(len).join(' ').trim();
+      const colon=rest.match(/(\d+):(\d+)/);if(colon)return{book,chapter:+colon[1],verse:+colon[2]};
+      const nums=rest.split(/\s+/);if(nums.length>=2){const c=+nums[0]||wordsToNumber(nums[0]);const v=+nums[1]||wordsToNumber(nums[1]);if(c&&v)return{book,chapter:c,verse:v};}
     }
-  }
-  return null;
+  }return null;
 }
 
-/* ===== UI + SpeechRecognition wiring ===== */
-const btn = document.getElementById('startStopBtn');
-const transcriptEl = document.getElementById('transcript');
-const verseEl = document.getElementById('verse');
-const logEl = document.getElementById('log');
+const startStopBtn=document.getElementById('startStopBtn');
+const prevBtn=document.getElementById('prevBtn');
+const nextBtn=document.getElementById('nextBtn');
+const transcriptEl=document.getElementById('transcript');
+const verseRefEl=document.getElementById('verseRef');
+const verseBodyEl=document.getElementById('verseBody');
+const logEl=document.getElementById('log');
+const bigPlus=document.getElementById('bigPlus');
+const bigMinus=document.getElementById('bigMinus');
 
-function log(msg){ logEl.innerText = msg; console.log(msg); }
+let currentRef=null;baseFontSize=44;
+function log(msg){logEl.innerText=msg;}
 
-/* current reference holder */
-let currentRef = null; // {book,chapter,verse,verseEnd}
-
-/* showVerse: fetch and render - stores currentRef on success */
 async function showVerse(parsed){
-  try {
-    const parsedCopy = { ...parsed }; // avoid external mutation surprises
-    const ref = `${parsedCopy.book} ${parsedCopy.chapter}:${parsedCopy.verse}` +
-      (parsedCopy.verseEnd && parsedCopy.verseEnd > parsedCopy.verse ? `-${parsedCopy.verseEnd}` : '');
-    const url = `https://bible-api.com/${encodeURIComponent(ref)}`;
-    log('Fetching ' + ref + ' ...');
-    const resp = await fetch(url);
-    if(!resp.ok) throw new Error('Bible API returned ' + resp.status);
-    const data = await resp.json();
-    verseEl.innerHTML = `<strong>${data.reference} (${data.translation_id||'text'})</strong>
-                         <p style="white-space:pre-wrap;margin-top:8px">${data.text}</p>`;
+  try{
+    const ref=`${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+    const resp=await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
+    if(!resp.ok)throw new Error(resp.status);
+    const data=await resp.json();
+    verseRefEl.innerText=data.reference+(data.translation_id?` — ${data.translation_id}`:'');
+    verseBodyEl.innerText=data.text.trim();
+    verseBodyEl.style.fontSize=baseFontSize+'px';
+    currentRef=parsed;
     log('Verse loaded.');
-    currentRef = parsedCopy; // store only after success
-  } catch(err){
-    log('Error fetching verse: ' + err.message);
-  }
+  }catch(e){log('Error: '+e.message);}
 }
 
-/* SpeechRecognition availability */
-if(!(window.SpeechRecognition || window.webkitSpeechRecognition)){
-  log('SpeechRecognition not available in this browser. Use Chrome (desktop) for testing.');
-  btn.disabled = true;
-} else {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recog = new SpeechRecognition();
-  recog.lang = 'en-US';
-  recog.interimResults = false;
-  recog.maxAlternatives = 1;
-  recog.continuous = false;
+prevBtn.addEventListener('click',()=>{if(currentRef&&currentRef.verse>1)showVerse({...currentRef,verse:currentRef.verse-1});});
+nextBtn.addEventListener('click',()=>{if(currentRef)showVerse({...currentRef,verse:currentRef.verse+1});});
+bigPlus.addEventListener('click',()=>{baseFontSize=Math.min(120,baseFontSize+8);verseBodyEl.style.fontSize=baseFontSize+'px';});
+bigMinus.addEventListener('click',()=>{baseFontSize=Math.max(18,baseFontSize-6);verseBodyEl.style.fontSize=baseFontSize+'px';});
 
-  let listening = false;
-
-  btn.addEventListener('click', ()=>{
-    if(!listening){
-      try {
-        recog.start();
-        listening = true;
-        btn.classList.add('listening');
-        btn.innerText = 'Stop';
-        transcriptEl.innerText = '';
-        verseEl.innerText = '';
-        log('Listening — speak now.');
-      } catch(e){
-        log('Could not start recognition: ' + e.message);
-      }
-    } else {
-      try {
-        recog.stop();
-        listening = false;
-        btn.classList.remove('listening');
-        btn.innerText = 'Start';
-        log('Stopped — processing...');
-      } catch(e){
-        log('Could not stop recognition: ' + e.message);
-      }
-    }
-  });
-
-  recog.onresult = async (ev) => {
-    const text = ev.results[0][0].transcript;
-    transcriptEl.innerText = 'Heard: "' + text + '"';
-    log('Recognized: ' + text);
-    const parsed = parseReference(text);
-    if(!parsed){
-      log('Could not parse a Bible reference. Try: "Genesis chapter three verse five" or "John 3:16".');
-      return;
-    }
-    log(`Parsed: ${parsed.book} ${parsed.chapter}:${parsed.verse}`);
-    await showVerse(parsed);
-  };
-
-  recog.onerror = (e) => {
-    log('Speech error: ' + (e.error || JSON.stringify(e)));
-    listening = false;
-    btn.classList.remove('listening');
-    btn.innerText = 'Start';
-  };
-
-  recog.onend = () => {
-    listening = false;
-    btn.classList.remove('listening');
-    btn.innerText = 'Start';
-  };
+/* SpeechRecognition */
+if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){log('SpeechRecognition not available.');startStopBtn.disabled=true;}
+else{
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;const recog=new SpeechRecognition();
+  recog.lang='en-US';recog.interimResults=false;recog.maxAlternatives=1;recog.continuous=false;let listening=false;
+  startStopBtn.addEventListener('click',()=>{if(!listening){recog.start();listening=true;startStopBtn.innerText='Stop';log('Listening…');}else{recog.stop();}});
+  recog.onresult=async(ev)=>{const text=ev.results[0][0].transcript;transcriptEl.innerText='Heard: "'+text+'"';const parsed=parseReference(text);if(parsed)await showVerse(parsed);else log('Could not parse reference.');};
+  recog.onend=()=>{listening=false;startStopBtn.innerText='Start';};
 }
-
-/* ===== keyboard navigation =====
-   Left Arrow: previous verse (verse - 1) - stops at verse 1
-   Right Arrow: next verse (verse + 1) - tries fetch, reverts on failure
-*/
-document.addEventListener('keydown', async (ev)=>{
-  if(!currentRef) return;
-  if(ev.key === "ArrowLeft"){
-    if(currentRef.verse > 1){
-      const candidate = { ...currentRef, verse: currentRef.verse - 1 };
-      await showVerse(candidate);
-    } else {
-      log('Already at verse 1 of this chapter.'); 
-    }
-  }
-  if(ev.key === "ArrowRight"){
-    const candidate = { ...currentRef, verse: currentRef.verse + 1 };
-    // try fetch; if fails, do not change currentRef
-    const previous = { ...currentRef };
-    await showVerse(candidate);
-    // if showVerse failed, currentRef will remain previous; showVerse logs error
-  }
-});
+document.addEventListener('keydown',(ev)=>{if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1)showVerse({...currentRef,verse:currentRef.verse-1});if(ev.key==="ArrowRight"&&currentRef)showVerse({...currentRef,verse:currentRef.verse+1});});
 </script>
 </body>
 </html>
