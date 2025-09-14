@@ -323,6 +323,156 @@ function wordsToNumber(w){
   return m[w]||null;
 }
 
+function doubleMetaphone(value) {
+  if (!value) return ["", ""];
+  value = value.toLowerCase().trim();
+
+  // Keep only letters
+  value = value.replace(/[^a-z]/g, "");
+
+  if (!value) return ["", ""];
+
+  const isSlavoGermanic = /w|k|cz|witz/.test(value);
+  const length = value.length;
+  let primary = "";
+  let secondary = "";
+  let index = 0;
+
+  function add(p, s) {
+    primary += p;
+    secondary += (s !== undefined ? s : p);
+  }
+
+  while (index < length) {
+    const char = value[index];
+
+    // Simplified handling of key consonants
+    if (char === "a" || char === "e" || char === "i" || char === "o" || char === "u" || char === "y") {
+      if (index === 0) add("A");
+      index++;
+      continue;
+    }
+
+    if (char === "b") {
+      add("P");
+      index += (value[index + 1] === "b") ? 2 : 1;
+      continue;
+    }
+
+    if (char === "c") {
+      if (value.substr(index, 2) === "ch") {
+        add("X"); // like "Kh"
+        index += 2;
+        continue;
+      }
+      add("K");
+      index += (value[index + 1] === "c") ? 2 : 1;
+      continue;
+    }
+
+    if (char === "d") {
+      if (value.substr(index, 2) === "dg") {
+        add("J");
+        index += 2;
+      } else {
+        add("T");
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === "g") {
+      if (value[index + 1] === "h") {
+        add("K");
+        index += 2;
+        continue;
+      }
+      add("K");
+      index += 1;
+      continue;
+    }
+
+    if (char === "h") {
+      if (/[aeiou]/.test(value[index + 1])) {
+        add("H");
+        index++;
+      }
+      index++;
+      continue;
+    }
+
+    if (char === "k") {
+      add("K");
+      index += (value[index + 1] === "k") ? 2 : 1;
+      continue;
+    }
+
+    if (char === "p") {
+      add("P");
+      index += (value[index + 1] === "p") ? 2 : 1;
+      continue;
+    }
+
+    if (char === "q") {
+      add("K");
+      index++;
+      continue;
+    }
+
+    if (char === "s") {
+      if (value.substr(index, 2) === "sh") {
+        add("X");
+        index += 2;
+        continue;
+      }
+      add("S");
+      index += 1;
+      continue;
+    }
+
+    if (char === "t") {
+      if (value.substr(index, 2) === "th") {
+        add("0", "T"); // "th"
+        index += 2;
+        continue;
+      }
+      add("T");
+      index++;
+      continue;
+    }
+
+    if (char === "v") {
+      add("F");
+      index++;
+      continue;
+    }
+
+    if (char === "w" || char === "y") {
+      if (/[aeiou]/.test(value[index + 1])) add("A");
+      index++;
+      continue;
+    }
+
+    if (char === "x") {
+      add("KS");
+      index++;
+      continue;
+    }
+
+    if (char === "z") {
+      add("S");
+      index++;
+      continue;
+    }
+
+    // Default: just keep consonant
+    add(char.toUpperCase());
+    index++;
+  }
+
+  return [primary, secondary];
+}
+
 /* Parse spoken reference using BOOK_ALIASES */
 function parseReference(text){
   console.log("🔹 Input text:", text);
@@ -334,9 +484,31 @@ function parseReference(text){
   for (let len = Math.min(3, tokens.length); len >= 1; len--) {
     const candidate = tokens.slice(0, len).join(' ');
     console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
+
+    let book = null;
+
+    // 1) Exact alias match
     if (BOOK_ALIASES[candidate]) {
-      const book = BOOK_ALIASES[candidate];
+      book = BOOK_ALIASES[candidate];
       console.log("✅ Matched book alias:", candidate, "→", book);
+    } else {
+      // 2) Double Metaphone fuzzy check
+      const [p, sKey] = doubleMetaphone(candidate);
+      console.log("🔹 DoubleMetaphone:", candidate, "→", p, sKey);
+
+      // Try to find any BOOK_ALIASES key with same metaphone
+      for (const alias in BOOK_ALIASES) {
+        const [ap, as] = doubleMetaphone(alias);
+        if (p === ap || p === as || sKey === ap || sKey === as) {
+          book = BOOK_ALIASES[alias];
+          console.log("🔎 Fuzzy matched by metaphone:", candidate, "→", alias, "→", book);
+          break;
+        }
+      }
+    }
+
+    if (book) {
+      // Found a book, now handle the rest (chapter/verse)
       let rest = tokens.slice(len).join(' ');
       console.log("🔹 Raw remaining text after book:", rest);
       const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
@@ -366,6 +538,7 @@ function parseReference(text){
       console.log("❌ No match for book alias:", candidate);
     }
   }
+
   console.log("⚠️ No valid reference found.");
   return null;
 }
