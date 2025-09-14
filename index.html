@@ -141,6 +141,24 @@
       font-size: clamp(var(--verse-ref-min), var(--verse-ref-preferred), var(--verse-ref-max));
       margin-bottom:8px;
     }
+
+    /* Verse ref theme colors: dark-blue on light theme, orange on dark theme */
+    body[data-theme="light"] .verse-ref {
+      color: #0b3d91; /* dark blue (good contrast on white) */
+    }
+
+    body[data-theme="dark"] .verse-ref {
+      color: #ff8a00; /* orange (stands out on dark background) */
+    }
+
+    /* Ensure fullscreen state keeps the same theme colors */
+    body[data-theme="light"] .verse-stage.fullscreen .verse-ref {
+      color: #0b3d91;
+    }
+    body[data-theme="dark"] .verse-stage.fullscreen .verse-ref {
+      color: #ff8a00;
+    }
+
     .verse-body {
       font-size: clamp(var(--verse-min), var(--verse-preferred), var(--verse-max));
       line-height:1.15;
