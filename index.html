@@ -4,8 +4,9 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Bible Voice</title>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Malayalam:wght@400;700&display=swap" rel="stylesheet">
 
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Malayalam:wght@400;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 
   <style>
@@ -19,36 +20,46 @@
       --text-light: #1a1a1a;
       --muted-light: #555555;
       --accent-light: #0077cc;
+
+      /* verse sizing tokens used by clamp() */
+      --verse-min: 18px;
+      --verse-preferred: 5.2vw;
+      --verse-max: 56px;
+
+      --verse-ref-min: 20px;
+      --verse-ref-preferred: 4.0vw;
+      --verse-ref-max: 40px;
     }
+
+    html,body { height:100%; margin:0; padding:0; }
 
     body {
-      height:100%; margin:0;
-      font-family: Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
       transition: background 0.3s, color 0.3s;
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
     }
 
-    /* Dark theme */
+    /* Themes */
     body[data-theme="dark"] {
       background: linear-gradient(180deg, #071028 0%, var(--bg-dark) 100%);
       color: var(--text-dark);
     }
-
-    body[data-language="ML"] .verse-body,
-    body[data-language="ML"] .verse-ref {
-      font-family: "Noto Serif Malayalam", "Noto Sans Malayalam", serif;
-    }
-
-    /* Light theme */
     body[data-theme="light"] {
       background: var(--bg-light);
       color: var(--text-light);
     }
 
-    .wrap { max-width:1200px; margin:28px auto; padding:20px }
+    /* Malayam font when language=ML */
+    body[data-language="ML"] .verse-body,
+    body[data-language="ML"] .verse-ref {
+      font-family: "Noto Serif Malayalam", "Noto Sans Malayalam", serif;
+    }
 
-    .top { display:flex; gap:18px; align-items:center; justify-content:space-between; margin-bottom:18px }
+    .wrap { max-width:1200px; margin:28px auto; padding:20px; box-sizing:border-box; }
 
-    .brand { display:flex; gap:14px; align-items:center }
+    .top { display:flex; gap:18px; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; }
+
+    .brand { display:flex; gap:14px; align-items:center; }
     .logo {
       width: 72px;
       height: 72px;
@@ -56,13 +67,14 @@
       background-image: url("logo.png");
       background-size: cover;
       background-position: center;
+      flex: 0 0 72px;
     }
 
-    h1 { margin:0; font-family:"Playfair Display",serif; font-size:22px }
-    p.lead { margin:0; font-size:14px }
-    p.talk { margin:0; font-size:12px }
+    h1 { margin:0; font-family:"Playfair Display",serif; font-size:22px; }
+    p.lead { margin:0; font-size:14px; color: var(--muted-light); }
+    p.talk { margin:0; font-size:12px; }
 
-    .controls { display:flex;flex-wrap:wrap;gap:12px;align-items:center }
+    .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 
     .btn {
       border:1px solid transparent;
@@ -71,44 +83,44 @@
       font-weight:600;
       cursor:pointer;
       transition: background .2s, color .2s, border .2s;
+      background: rgba(0,0,0,0.04);
     }
     body[data-theme="dark"] .btn {
       background: rgba(255,255,255,0.06);
-      border-color: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.08);
       color: var(--accent-dark);
     }
     body[data-theme="light"] .btn {
       background: rgba(0,0,0,0.04);
-      border-color: rgba(0,0,0,0.1);
+      border-color: rgba(0,0,0,0.06);
       color: var(--accent-light);
     }
-
-    .btn.secondary { color: inherit }
-    .btn.icon { font-size:18px; padding:10px 12px }
+    .btn.secondary { color: inherit; background: transparent; border-color: transparent; }
+    .btn.icon { font-size:18px; padding:10px 12px; }
 
     .panel {
       border-radius:14px; padding:18px;
-      display:flex;flex-direction:column;gap:14px;align-items:center;
+      display:flex; flex-direction:column; gap:14px; align-items:center;
       transition: background .3s;
     }
     body[data-theme="dark"] .panel { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .panel { background: rgba(0,0,0,0.02) }
 
-    .transcript, .log { font-size:14px; }
+    .transcript, .log { font-size:14px; width:100%; text-align:left; white-space:pre-wrap; word-break:break-word; color:inherit; }
 
-    /* Make the verse-stage position relative so controls inside it can be absolutely placed */
+    /* Verse stage */
     .verse-stage {
-      margin-top:6px;flex:1;display:flex;align-items:center;justify-content:center;
-      padding:22px;border-radius:12px;min-height:550px;text-align:center;
-      width:90%;       /* 90% of the parent width */
-      max-width:1250px; /* corrected to include px */
-      position: relative; /* NEW: for the maximize button */
+      margin-top:6px; flex:1; display:flex; align-items:center; justify-content:center;
+      padding:22px; border-radius:12px; min-height:420px; text-align:center;
+      width:90%;
+      max-width:1250px;
+      position: relative;
       overflow: hidden;
+      box-sizing: border-box;
     }
     body[data-theme="dark"] .verse-stage { background: rgba(255,255,255,0.02) }
     body[data-theme="light"] .verse-stage { background: rgba(0,0,0,0.02) }
 
-    /* When verse-stage is logically "expanded" (we also request browser fullscreen) make the content larger */
     .verse-stage.fullscreen {
       width: 100vw !important;
       height: 100vh !important;
@@ -116,27 +128,33 @@
       padding: 40px !important;
       border-radius: 0 !important;
       display:flex;
-      align-items:center;justify-content:center;
+      align-items:center; justify-content:center;
     }
 
-    /* Fullscreen background override by theme: exactly what the user asked for */
-    body[data-theme="light"] .verse-stage.fullscreen {
-      background: var(--bg-light) !important; /* white */
-      color: var(--text-light);
+    body[data-theme="light"] .verse-stage.fullscreen { background: var(--bg-light) !important; color: var(--text-light); }
+    body[data-theme="dark"] .verse-stage.fullscreen { background: #000000 !important; color: var(--text-dark); }
+
+    /* Responsive font sizes using clamp() */
+    .verse-ref {
+      font-family: "Playfair Display", serif;
+      font-weight:700;
+      font-size: clamp(var(--verse-ref-min), var(--verse-ref-preferred), var(--verse-ref-max));
+      margin-bottom:8px;
     }
-    body[data-theme="dark"] .verse-stage.fullscreen {
-      background: #000000 !important; /* black */
-      color: var(--text-dark);
+    .verse-body {
+      font-size: clamp(var(--verse-min), var(--verse-preferred), var(--verse-max));
+      line-height:1.15;
+      font-weight:600;
+      transition: font-size 0.15s ease;
     }
 
-    .verse-ref { font-family:"Playfair Display",serif;font-weight:700;font-size:34px;margin-bottom:8px }
-    .verse-body { font-size:44px;line-height:1.15;font-weight:600 }
-
-    body[data-theme="dark"] .verse-ref { color: var(--accent-dark) }
-    body[data-theme="dark"] .verse-body { color: #f7fbff; text-shadow:0 6px 20px rgba(0,0,0,0.6) }
-
-    body[data-theme="light"] .verse-ref { color: var(--accent-light) }
-    body[data-theme="light"] .verse-body { color: var(--text-light) }
+    /* Fullscreen overrides (still clamped) */
+    .verse-stage.fullscreen .verse-body {
+      font-size: clamp(28px, 6.8vw, 84px);
+    }
+    .verse-stage.fullscreen .verse-ref {
+      font-size: clamp(28px, 6.0vw, 62px);
+    }
 
     @media (max-width:900px){
       .verse-ref{font-size:26px}
@@ -146,7 +164,7 @@
     /* hidden file input visually */
     #xmlFileInput { display:none; }
 
-    /* Mic icon next to Start button */
+    /* Mic icon styling */
     .mic-icon {
       display: inline-block;
       width: 22px;
@@ -158,10 +176,8 @@
       vertical-align: middle;
       position: relative;
       transition: background .15s, box-shadow .15s, transform .15s;
-      pointer-events: none; /* decorative only */
+      pointer-events: none;
     }
-
-    /* small mic glyph inside */
     .mic-icon::after {
       content: '🎤';
       position: absolute;
@@ -169,31 +185,26 @@
       top: 50%;
       transform: translate(-50%, -50%);
       font-size: 12px;
-      filter: grayscale(100%); /* grey when inactive */
+      filter: grayscale(100%);
       transition: filter .15s;
     }
-
-    /* Recording state — red background + pulsing */
     .mic-icon.recording {
       background: linear-gradient(135deg, #ff5a5a, #d60000);
       box-shadow: 0 0 0 6px rgba(214,0,0,0.08), 0 0 18px rgba(214,0,0,0.12);
       transform: scale(1.02);
       animation: micPulse 1.2s infinite ease-in-out;
     }
-    .mic-icon.recording::after {
-      filter: none; /* full color emoji */
-    }
-
+    .mic-icon.recording::after { filter: none; }
     @keyframes micPulse {
       0% { box-shadow: 0 0 0 0 rgba(214,0,0,0.12); }
       70% { box-shadow: 0 0 0 10px rgba(214,0,0,0); }
       100% { box-shadow: 0 0 0 0 rgba(214,0,0,0); }
     }
 
-    /* Maximize button inside verse-stage (moved slightly left to make room for rec button) */
+    /* Maximize button */
     .verse-max-btn {
       position: absolute;
-      right: 56px; /* moved to the left to free up the top-right corner */
+      right: 56px;
       top: 14px;
       z-index: 30;
       background: rgba(0,0,0,0.06);
@@ -214,19 +225,18 @@
       border-color: rgba(0,0,0,0.06);
       color: var(--accent-light);
     }
-
     .verse-max-btn:focus { outline: 3px solid rgba(0,0,0,0.08); }
 
-    /* Recording indicator button (top-right). Hidden when not recording. */
+    /* Recording indicator button */
     .verse-rec-btn {
       position: absolute;
-      right: 14px; /* top-right corner */
+      right: 14px;
       top: 14px;
       z-index: 40;
       width: 40px;
       height: 40px;
       border-radius: 999px;
-      display: none; /* shown only when recording */
+      display: none;
       align-items: center;
       justify-content: center;
       font-weight:700;
@@ -235,7 +245,6 @@
       box-shadow: 0 6px 18px rgba(214,0,0,0.18);
       transform-origin: center;
     }
-    /* Visual style for red recording button */
     .verse-rec-btn.rec {
       display: inline-flex;
       background: linear-gradient(135deg,#ff4b4b,#d40000);
@@ -248,52 +257,40 @@
       100% { transform: scale(1); box-shadow: 0 6px 18px rgba(214,0,0,0.18); }
     }
 
-    /* accessible hidden label for screen-readers if you want one */
-    .sr-only {
-      position: absolute !important;
-      height: 1px; width: 1px;
-      overflow: hidden;
-      clip: rect(1px, 1px, 1px, 1px);
-      white-space: nowrap;
-      border: 0; padding: 0; margin: -1px;
-    }
+    .sr-only { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; border: 0; padding: 0; margin: -1px; }
   </style>
 </head>
-<body data-theme="light">
+
+<body data-theme="light" data-language="EN">
   <div class="wrap">
     <div class="top">
       <div class="brand">
-        <div class="logo"></div>
+        <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Bible Voice</h1>
-          <p class="lead">Speak a reference. Use ← / → or buttons to navigate verses.</p>
+          <p class="lead">Speak a reference. Use ← / → or the buttons to navigate verses.</p>
         </div>
       </div>
 
-      <div class="controls">
-        <button id="startStopBtn" class="btn">Start</button>
-        <!-- mic indicator placed beside Start -->
+      <div class="controls" role="toolbar" aria-label="Controls">
+        <button id="startStopBtn" class="btn" aria-pressed="false">Start</button>
         <span id="micIcon" class="mic-icon" role="img" aria-hidden="true" title="Microphone status"></span>
 
-        <button id="prevBtn" class="btn secondary icon">◀</button>
-        <button id="nextBtn" class="btn secondary icon">▶</button>
-        <button id="langBtn" class="btn secondary">EN / ML</button>
-        <button id="bigMinus" class="btn secondary">A-</button>
-        <button id="bigPlus" class="btn">A+</button>
-        <button id="themeBtn" class="btn">🌞/🌙</button>
-        <button id="loadLocalBtn" class="btn secondary">Load local XML</button>
+        <button id="prevBtn" class="btn secondary icon" title="Previous verse">◀</button>
+        <button id="nextBtn" class="btn secondary icon" title="Next verse">▶</button>
+        <button id="langBtn" class="btn secondary" title="Toggle language">EN / ML</button>
+        <button id="bigMinus" class="btn secondary" title="Decrease font">A-</button>
+        <button id="bigPlus" class="btn" title="Increase font">A+</button>
+        <button id="themeBtn" class="btn" title="Toggle theme">🌞/🌙</button>
+        <button id="loadLocalBtn" class="btn secondary" title="Load local XML">Load local XML</button>
       </div>
     </div>
 
-    <div class="panel">
-      <div class="transcript" id="transcript"></div>
+    <div class="panel" role="main">
+      <div class="transcript" id="transcript" aria-live="polite"></div>
 
-      <!-- Verse stage: maximize button is here -->
-      <div class="verse-stage" id="verseStage">
-        <!-- Recording indicator (appears only during recording) -->
+      <div class="verse-stage" id="verseStage" role="region" aria-label="Verse display">
         <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
-
-        <!-- maximize button -->
         <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
 
         <div>
@@ -302,30 +299,31 @@
         </div>
       </div>
 
-      <div class="log" id="log">Ready</div>
+      <div class="log" id="log" aria-live="polite">Ready</div>
     </div>
   </div>
 
-  <!-- hidden file input for manual-loading fallback -->
   <input id="xmlFileInput" type="file" accept=".xml,.XML" />
 
 <script>
+/* ========= Globals & Helpers ========= */
 let BOOK_ALIASES = {};
-async function loadBookAliases() {
+(async function loadBookAliases(){
   try {
     const res = await fetch('./book_aliases.json');
-    BOOK_ALIASES = await res.json();
+    if (res.ok) BOOK_ALIASES = await res.json();
     console.log("✅ Loaded aliases:", BOOK_ALIASES);
-  } catch (e) {
-    console.warn("Could not load book_aliases.json", e);
-  }
-}
-loadBookAliases();
+  } catch (e) { console.warn("Could not load book_aliases.json", e); }
+})();
 
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
-function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
+function wordsToNumber(w){
+  const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12};
+  if(!isNaN(Number(w))) return Number(w);
+  return m[w]||null;
+}
 
-/* parseReference unchanged (still uses BOOK_ALIASES to return {book,chapter,verse}) */
+/* Parse spoken reference using BOOK_ALIASES */
 function parseReference(text){
   console.log("🔹 Input text:", text);
   const s = normalizeSpoken(text);
@@ -348,37 +346,21 @@ function parseReference(text){
 
       const colon = rest.match(/(\d+):(\d+)/);
       if (colon) {
-        console.log("✅ Found chapter:verse pattern:", colon[0]);
         return { book, chapter: +colon[1], verse: +colon[2] };
       }
-      if (!rest) {
-        console.log("⚠️ No chapter/verse provided after cleaning — returning null");
-        return null;
-      }
+      if (!rest) return null;
       const nums = rest.split(/\s+/).filter(Boolean);
-      console.log("🔹 Numbers/words after split:", nums);
       if (nums.length >= 2) {
         const c = (Number(nums[0]) || wordsToNumber(nums[0]));
         const v = (Number(nums[1]) || wordsToNumber(nums[1]));
-        console.log("🔹 Parsed chapter candidate:", c, "verse candidate:", v);
         if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
-          console.log("✅ Returning book/chapter/verse from numbers");
           return { book, chapter: c, verse: v };
-        } else {
-          console.log("❌ Could not parse both chapter & verse from:", nums[0], nums[1]);
         }
       }
       if (nums.length === 1) {
         const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-        console.log("🔹 Parsed single chapter candidate:", c);
-        if (Number.isFinite(c) && c > 0) {
-          console.log("✅ Returning book/chapter with default verse 1");
-          return { book, chapter: c, verse: 1 };
-        } else {
-          console.log("❌ Could not parse chapter from single token:", nums[0]);
-        }
+        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
       }
-      console.log("⚠️ Book matched but failed to extract chapter/verse after cleaning.");
       return null;
     } else {
       console.log("❌ No match for book alias:", candidate);
@@ -388,7 +370,7 @@ function parseReference(text){
   return null;
 }
 
-/* DOM refs */
+/* ========= DOM refs ========= */
 const startStopBtn=document.getElementById('startStopBtn');
 const micIcon=document.getElementById('micIcon');
 const prevBtn=document.getElementById('prevBtn');
@@ -407,27 +389,42 @@ const verseStage = document.getElementById('verseStage');
 const verseMaxBtn = document.getElementById('verseMaxBtn');
 const verseRecBtn = document.getElementById('verseRecBtn');
 
-let currentRef = null, baseFontSize = 44;
+/* ========= App state ========= */
+let currentRef = null;
+
+/* Responsive + user-controlled font logic:
+   - CSS provides responsive font using clamp()
+   - JS reads computed size on init & resize and uses it as baseFontSize
+   - If user clicks A+/A- we treat that as userAdjustedFont and stop auto-overrides
+*/
+let baseFontSize = 44; // fallback
+let userAdjustedFont = false;
+
 function log(msg){ logEl.innerText = msg; console.log(msg); }
 
-/* ===== Multi-language local XML storage =====
-   We'll preload BOTH files when possible into:
-     english = { data, bookNames, englishToKeyMap }
-     malayalam = { data, bookNames, englishToKeyMap }
-   active pointers:
-     bibleData, bibleBookNames, bibleEnglishToKeyMap -> point to current language's data
-*/
+/* Read computed font-size (px) for verseBody */
+function readComputedVerseFontSize() {
+  try {
+    const s = window.getComputedStyle(verseBodyEl);
+    const fs = parseFloat(s && s.fontSize);
+    if (Number.isFinite(fs)) return Math.round(fs);
+  } catch (e) { /* ignore */ }
+  return baseFontSize;
+}
+
+/* Initialize baseFontSize from CSS responsive value */
+baseFontSize = readComputedVerseFontSize();
+verseBodyEl.style.fontSize = baseFontSize + 'px';
+
+/* ========= XML parsing utilities (unchanged logic, robust) ========= */
 let englishXML = null;
 let malayalamXML = null;
-
 let bibleData = null;
 let bibleBookNames = null;
 let bibleEnglishToKeyMap = null;
-let currentLanguage = 'EN'; // 'EN' or 'ML'
+let currentLanguage = 'EN';
 
-/* Parse Zefania XML into structured object and english->xmlKey map */
 function parseBibleXMLString(xmlString) {
-  // Helper: attempt parsing and return {doc, parsererror} object
   function tryParse(str) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(str, "application/xml");
@@ -436,16 +433,8 @@ function parseBibleXMLString(xmlString) {
   }
 
   try {
-    // quick sanity log for debugging: show first 1000 chars (trim control)
-    try {
-      const sample = xmlString.slice(0, 1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n');
-      console.log("parseBibleXMLString: xml sample (first 1k):", sample);
-    } catch (e) { /* ignore logging issues */ }
-
-    // first attempt
     let { doc, parseErrorElem } = tryParse(xmlString);
     if (!parseErrorElem) {
-      // success: convert doc -> data structure
       const bibleDataLocal = {};
       const englishToKeyMap = {};
       const books = doc.getElementsByTagName("BIBLEBOOK");
@@ -473,49 +462,19 @@ function parseBibleXMLString(xmlString) {
       return { bibleDataLocal, bookNamesSet, englishToKeyMap };
     }
 
-    // parseError found -> log helpful diagnostics and attempt a gentle cleanup and retry
     console.warn("XML parse returned parsererror. Attempting recovery...");
-
-    // Log parsererror node content (different browsers expose different shapes)
-    try {
-      console.groupCollapsed("XML parsererror details");
-      console.error(parseErrorElem.textContent || parseErrorElem.innerHTML || parseErrorElem);
-      console.groupEnd();
-    } catch (e) { console.warn("Could not log parsererror details:", e); }
-
-    // Heuristics: remove BOM and illegal control chars (except \t \n \r)
     let cleaned = xmlString;
-
-    // Remove UTF-8 BOM if present
-    if (cleaned.charCodeAt(0) === 0xFEFF) {
-      console.warn("Removing UTF-8 BOM (0xFEFF) from XML string before retry.");
-      cleaned = cleaned.slice(1);
-    }
-
-    // Remove ASCII control characters except TAB(9), LF(10), CR(13)
+    if (cleaned.charCodeAt(0) === 0xFEFF) cleaned = cleaned.slice(1);
     cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
-
-    // Some malformed exports include ampersands that are not entities; do NOT replace all & blindly.
-    // We will only attempt an entity-safe replacement of common problematic sequences like " & " -> " &amp; "
-    // but only if we detect a bare ampersand not followed by a valid entity pattern.
-    // Avoid overcorrecting; only do this as a last resort if the parse error mentions '&'.
     const errText = (parseErrorElem.textContent || '').toLowerCase();
     if (errText.includes('&') && cleaned.includes('&')) {
-      // replace lone ampersands (heuristic): ampersand not followed by word+; or #num;
       cleaned = cleaned.replace(/&(?!(#\d+;)|([a-zA-Z0-9]+;))/g, '&amp;');
       console.warn("Attempted to escape lone ampersands in XML before retry.");
     }
 
-    // Show first 500 chars of cleaned for debugging
-    try {
-      console.log("parseBibleXMLString: cleaned xml sample (first 500):", cleaned.slice(0,500).replace(/\r/g,'\\r').replace(/\n/g,'\\n'));
-    } catch (e) { /* ignore */ }
-
-    // Retry parse
     let retry = tryParse(cleaned);
     if (!retry.parseErrorElem) {
       console.info("XML parse succeeded after cleaning.");
-      // build object same as above
       const bibleDataLocal = {};
       const englishToKeyMap = {};
       const books = retry.doc.getElementsByTagName("BIBLEBOOK");
@@ -543,11 +502,8 @@ function parseBibleXMLString(xmlString) {
       return { bibleDataLocal, bookNamesSet, englishToKeyMap };
     }
 
-    // still errors — log final parsererror and bail out
     console.error("XML parsing still failed after cleaning. Final parsererror:");
-    try {
-      console.error(retry.parseErrorElem.textContent || retry.parseErrorElem.innerHTML || retry.parseErrorElem);
-    } catch (e) { console.error(retry.parseErrorElem); }
+    try { console.error(retry.parseErrorElem.textContent || retry.parseErrorElem.innerHTML || retry.parseErrorElem); } catch (e) { console.error(retry.parseErrorElem); }
     return null;
   } catch (e) {
     console.error("parseBibleXMLString unexpected error:", e);
@@ -555,8 +511,6 @@ function parseBibleXMLString(xmlString) {
   }
 }
 
-
-/* Helper to assign parsed object to english or malayalam slot */
 function assignParsedToLang(parsedObj, lang) {
   if (!parsedObj) return;
   if (lang === 'EN') {
@@ -574,10 +528,8 @@ function assignParsedToLang(parsedObj, lang) {
   }
 }
 
-/* Load XML from path and return parsed object or null */
 async function fetchAndParse(path) {
   try {
-    // if path is array, try sequentially like earlier helper
     const candidates = Array.isArray(path) ? path : [path];
     for (const p of candidates) {
       try {
@@ -588,35 +540,25 @@ async function fetchAndParse(path) {
           continue;
         }
         const txt = await resp.text();
-
-        // Quick size log
         console.log(`Fetched ${p} — length ${txt.length} chars`);
-
-        // Try parsing
         const parsed = parseBibleXMLString(txt);
         if (!parsed) {
           console.warn('Failed to parse XML from', p);
-          // dump a small snippet to help debugging (first 1000)
-          try {
-            console.log('Snippet (first 1000 chars):', txt.slice(0,1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n'));
-          } catch (e) { /* ignore */ }
+          try { console.log('Snippet (first 1000 chars):', txt.slice(0,1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n')); } catch (e) {}
           continue;
         }
         console.log('Successfully fetched & parsed', p);
         return parsed;
       } catch (err) {
         console.warn('fetchAndParse error for', p, err && err.message ? err.message : err);
-        // continue to next candidate
       }
     }
-    // nothing worked
     return null;
   } catch (e) {
     console.error("fetchAndParse unexpected error:", e);
     return null;
   }
 }
-
 
 /* Resolve spoken (English canonical) book name to the current XML's key */
 function resolveBookName(spokenBook) {
@@ -634,7 +576,89 @@ function resolveBookName(spokenBook) {
   return spokenBook;
 }
 
-/* set mic visual state (unchanged) */
+/* ========= Display verse (uses bibleData if available, otherwise remote API) ========= */
+async function showVerse(parsed){
+  try{
+    if(!parsed) { log("No reference to show."); return; }
+    const resolvedBook = bibleData ? resolveBookName(parsed.book) : parsed.book;
+    if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
+      const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
+      verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`;
+      verseBodyEl.innerText = text;
+      verseBodyEl.style.fontSize = baseFontSize + 'px';
+      currentRef = parsed;
+      log(resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
+      return;
+    }
+    if (bibleData) {
+      if (bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)]) {
+        log(`Verse ${parsed.verse} not found in ${resolvedBook} ${parsed.chapter}.`);
+      } else {
+        log(`Chapter ${parsed.chapter} not found in ${resolvedBook}.`);
+      }
+    }
+    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+    log('Trying remote API for: ' + ref);
+    const resp = await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
+    if(!resp.ok) throw new Error('Remote API status ' + resp.status);
+    const data = await resp.json();
+    verseRefEl.innerText = data.reference + (data.translation_id ? ` — ${data.translation_id}` : '');
+    verseBodyEl.innerText = data.text.trim();
+    verseBodyEl.style.fontSize = baseFontSize + 'px';
+    currentRef = parsed;
+    log('Loaded from remote API.');
+  }catch(e){ log('Error: ' + (e && e.message ? e.message : e)); }
+}
+
+/* ========= Navigation and A+/A- handlers (updated to preserve user choice) ========= */
+prevBtn.addEventListener('click',()=>{ if(currentRef && currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); });
+nextBtn.addEventListener('click',()=>{ if(currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
+
+bigPlus.addEventListener('click',()=>{
+  userAdjustedFont = true;
+  baseFontSize = Math.min(160, baseFontSize + Math.max(6, Math.round(baseFontSize * 0.12)));
+  verseBodyEl.style.fontSize = baseFontSize + 'px';
+});
+bigMinus.addEventListener('click',()=>{
+  userAdjustedFont = true;
+  baseFontSize = Math.max(12, baseFontSize - Math.max(4, Math.round(baseFontSize * 0.12)));
+  verseBodyEl.style.fontSize = baseFontSize + 'px';
+});
+
+/* Theme toggle */
+themeBtn.addEventListener('click',()=>{
+  const body=document.body;
+  body.dataset.theme = (body.dataset.theme==="dark" ? "light" : "dark");
+});
+
+/* Fullscreen helpers */
+function isDocumentInFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement); }
+async function requestFullscreen(element) { if (element.requestFullscreen) return element.requestFullscreen(); if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen(); if (element.msRequestFullscreen) return element.msRequestFullscreen(); return Promise.reject(new Error('Fullscreen API not supported')); }
+async function exitFullscreen() { if (document.exitFullscreen) return document.exitFullscreen(); if (document.webkitExitFullscreen) return document.webkitExitFullscreen(); if (document.msExitFullscreen) return document.msExitFullscreen(); return Promise.reject(new Error('Exit Fullscreen API not supported')); }
+function updateMaxButtonUI(isFull) { verseMaxBtn.setAttribute('aria-pressed', String(!!isFull)); verseMaxBtn.title = isFull ? 'Exit fullscreen (Esc or F)' : 'Maximize (F)'; verseMaxBtn.innerText = isFull ? '⤡' : '⤢'; if (isFull) verseStage.classList.add('fullscreen'); else verseStage.classList.remove('fullscreen'); }
+
+async function toggleFullscreen() {
+  try {
+    const inFs = isDocumentInFullscreen();
+    if (!inFs) { await requestFullscreen(verseStage); updateMaxButtonUI(true); }
+    else { await exitFullscreen(); updateMaxButtonUI(false); }
+  } catch (err) {
+    console.warn('Fullscreen toggle failed', err);
+    log('Fullscreen not available: ' + (err && err.message ? err.message : err));
+  }
+}
+verseMaxBtn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFullscreen(); });
+document.addEventListener('fullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+document.addEventListener('webkitfullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+document.addEventListener('msfullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+
+document.addEventListener('keydown', (ev) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
+  if (ev.key && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleFullscreen(); }
+});
+
+/* ========= Recording visual state ========= */
 function setRecordingState(isRecording){
   if(!micIcon) return;
   if(isRecording){
@@ -662,65 +686,7 @@ function setRecordingState(isRecording){
   }
 }
 
-/* Show verse using whatever bibleData is currently active */
-async function showVerse(parsed){
-  try{
-    if(!parsed) { log("No reference to show."); return; }
-    const resolvedBook = bibleData ? resolveBookName(parsed.book) : parsed.book;
-    // try local bible first
-    if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
-      const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
-      verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`;
-      verseBodyEl.innerText = text;
-      verseBodyEl.style.fontSize = baseFontSize + 'px';
-      currentRef = parsed;
-      log(resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
-      return;
-    }
-    if (bibleData) {
-      if (bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)]) {
-        log(`Verse ${parsed.verse} not found in ${resolvedBook} ${parsed.chapter}.`);
-      } else {
-        log(`Chapter ${parsed.chapter} not found in ${resolvedBook}.`);
-      }
-    }
-    // Fallback to remote bible-api.com
-    const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
-    log('Trying remote API for: ' + ref);
-    const resp = await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
-    if(!resp.ok) throw new Error('Remote API status ' + resp.status);
-    const data = await resp.json();
-    verseRefEl.innerText = data.reference + (data.translation_id ? ` — ${data.translation_id}` : '');
-    verseBodyEl.innerText = data.text.trim();
-    verseBodyEl.style.fontSize = baseFontSize + 'px';
-    currentRef = parsed;
-    log('Loaded from remote API.');
-  }catch(e){ log('Error: ' + (e && e.message ? e.message : e)); }
-}
-
-/* navigation, font, theme, fullscreen, keyboard — unchanged logic; wire up handlers below */
-prevBtn.addEventListener('click',()=>{ if(currentRef && currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); });
-nextBtn.addEventListener('click',()=>{ if(currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
-bigPlus.addEventListener('click',()=>{ baseFontSize=Math.min(120,baseFontSize+8); verseBodyEl.style.fontSize=baseFontSize+'px'; });
-bigMinus.addEventListener('click',()=>{ baseFontSize=Math.max(18,baseFontSize-6); verseBodyEl.style.fontSize=baseFontSize+'px'; });
-themeBtn.addEventListener('click',()=>{ const body=document.body; body.dataset.theme = (body.dataset.theme==="dark" ? "light" : "dark"); });
-
-function isDocumentInFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement); }
-async function requestFullscreen(element) { if (element.requestFullscreen) return element.requestFullscreen(); if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen(); if (element.msRequestFullscreen) return element.msRequestFullscreen(); return Promise.reject(new Error('Fullscreen API not supported')); }
-async function exitFullscreen() { if (document.exitFullscreen) return document.exitFullscreen(); if (document.webkitExitFullscreen) return document.webkitExitFullscreen(); if (document.msExitFullscreen) return document.msExitFullscreen(); return Promise.reject(new Error('Exit Fullscreen API not supported')); }
-function updateMaxButtonUI(isFull) { verseMaxBtn.setAttribute('aria-pressed', String(!!isFull)); verseMaxBtn.title = isFull ? 'Exit fullscreen (Esc or F)' : 'Maximize (F)'; verseMaxBtn.innerText = isFull ? '⤡' : '⤢'; if (isFull) verseStage.classList.add('fullscreen'); else verseStage.classList.remove('fullscreen'); }
-async function toggleFullscreen() { try { const inFs = isDocumentInFullscreen(); if (!inFs) { await requestFullscreen(verseStage); updateMaxButtonUI(true); } else { await exitFullscreen(); updateMaxButtonUI(false); } } catch (err) { console.warn('Fullscreen toggle failed', err); log('Fullscreen not available: ' + (err && err.message ? err.message : err)); } }
-verseMaxBtn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFullscreen(); });
-document.addEventListener('fullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
-document.addEventListener('webkitfullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
-document.addEventListener('msfullscreenchange', () => updateMaxButtonUI(isDocumentInFullscreen()));
-document.addEventListener('keydown', (ev) => {
-  const tag = document.activeElement && document.activeElement.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
-  if (ev.key && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleFullscreen(); }
-});
-
-/* SpeechRecognition — same behavior */
+/* ========= SpeechRecognition wiring (same behavior) ========= */
 if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
   log('SpeechRecognition not available.');
   startStopBtn.disabled = true;
@@ -732,12 +698,14 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
   recog.continuous = true;
   recog.maxAlternatives = 1;
   let listening = false;
+
   startStopBtn.addEventListener('click', () => {
     try {
       if (!listening) {
         recog.start();
         listening = true;
         startStopBtn.innerText = 'Stop';
+        startStopBtn.setAttribute('aria-pressed','true');
         log('Listening…');
         setRecordingState(true);
       } else {
@@ -745,6 +713,7 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       }
     } catch (err) { console.error(err); }
   });
+
   recog.onresult = async (ev) => {
     let interim = '', final = '';
     for (let i = ev.resultIndex; i < ev.results.length; ++i) {
@@ -760,12 +729,14 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       else { log('Input to Parse:'+stable+':Could not parse reference from final transcript.'); }
     }
   };
-  recog.onend = () => { listening = false; startStopBtn.innerText = 'Start'; setRecordingState(false); log('Recognition ended.'); };
-  recog.onerror = (e) => { console.warn('SpeechRecognition error', e); listening = false; startStopBtn.innerText = 'Start'; setRecordingState(false); log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e))); };
+
+  recog.onend = () => { listening = false; startStopBtn.innerText = 'Start'; startStopBtn.setAttribute('aria-pressed','false'); setRecordingState(false); log('Recognition ended.'); };
+  recog.onerror = (e) => { console.warn('SpeechRecognition error', e); listening = false; startStopBtn.innerText = 'Start'; startStopBtn.setAttribute('aria-pressed','false'); setRecordingState(false); log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e))); };
 }
 
-/* keyboard nav & meta toggles (unchanged) */
+/* Keyboard nav */
 document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); if(ev.key==="ArrowRight"&&currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
+
 (function() {
   let lastToggle = 0; const DEBOUNCE_MS = 400;
   function tryToggleFromEvent(ev) {
@@ -781,7 +752,7 @@ document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&
   }, { passive: false });
 })();
 
-/* File input handler (user can load either English or Malayalam file manually) */
+/* ========= File input handler ========= */
 xmlFileInput.addEventListener('change', async (ev) => {
   const f = ev.target.files && ev.target.files[0];
   if (!f) { log('No file selected'); return; }
@@ -790,12 +761,10 @@ xmlFileInput.addEventListener('change', async (ev) => {
     const txt = await f.text();
     const parsed = parseBibleXMLString(txt);
     if (!parsed) { log('Failed to parse selected XML file.'); return; }
-    // Heuristic: if file name contains 'malay' or 'ml' treat as ML, else EN
     const lower = (f.name || '').toLowerCase();
     const lang = (lower.includes('malay') || lower.includes('ml')) ? 'ML' : 'EN';
     assignParsedToLang(parsed, lang);
     log('Local XML loaded from file: ' + f.name + ' — Books: ' + Object.keys((lang === 'EN' ? englishXML.data : malayalamXML.data)).length);
-    // If the loaded file matches currentLanguage assign pointers and show currentRef.
     if (lang === currentLanguage) {
       bibleData = (lang === 'EN') ? englishXML.data : malayalamXML.data;
       bibleBookNames = (lang === 'EN') ? englishXML.bookNames : malayalamXML.bookNames;
@@ -809,27 +778,16 @@ xmlFileInput.addEventListener('change', async (ev) => {
   }
 });
 
-/* Load both XMLs at startup (attempt fetch for both concurrently). If either fails, we leave that slot null and user can click Load local XML or pick a file. */
+/* ========= Preload English & Malayalam XMLs ========= */
 async function preloadBothXml() {
   log('Preloading English and Malayalam XMLs (if available)...');
   const [enParsed, mlParsed] = await Promise.all([
     fetchAndParse('English_Catholic_XML.xml'),
     fetchAndParse('malayalam_bible.xml')
   ]);
-  if (enParsed) {
-    assignParsedToLang(enParsed, 'EN');
-    console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length);
-  } else {
-    console.log('⚠️ English XML not available on server.');
-  }
-  if (mlParsed) {
-    assignParsedToLang(mlParsed, 'ML');
-    console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length);
-  } else {
-    console.log('⚠️ Malayalam XML not available on server.');
-  }
+  if (enParsed) { assignParsedToLang(enParsed, 'EN'); console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length); } else console.log('⚠️ English XML not available on server.');
+  if (mlParsed) { assignParsedToLang(mlParsed, 'ML'); console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length); } else console.log('⚠️ Malayalam XML not available on server.');
 
-  // Default pointers: prefer English if available, else Malayalam, else null
   if (englishXML && englishXML.data) {
     currentLanguage = 'EN';
     bibleData = englishXML.data;
@@ -848,11 +806,9 @@ async function preloadBothXml() {
     log('No local XMLs found. Click "Load local XML" to open a file from disk.');
   }
 
-  // If user already has a requested currentRef show it; otherwise show Genesis 1:1 as before if english available.
   if (currentRef) showVerse(currentRef);
   else if (currentLanguage === 'EN') showVerse({book: "Genesis", chapter: 1, verse: 1});
   else if (currentLanguage === 'ML') {
-    // try to resolve Genesis via englishToKeyMap if possible
     if (bibleEnglishToKeyMap && bibleEnglishToKeyMap['genesis']) {
       const xmlKey = bibleEnglishToKeyMap['genesis'];
       if (bibleData && bibleData[xmlKey] && bibleData[xmlKey]['1'] && bibleData[xmlKey]['1']['1']) {
@@ -864,18 +820,10 @@ async function preloadBothXml() {
   }
 }
 
-/* Load local button handler: if both preloads failed for that lang allow file pick */
+/* Load local button behaviour */
 loadLocalBtn.addEventListener('click', async () => {
-  // If current language slot exists do nothing and show message; otherwise prompt file pick
-  if (currentLanguage === 'EN' && englishXML && englishXML.data) {
-    log('English XML already loaded.');
-    return;
-  }
-  if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) {
-    log('Malayalam XML already loaded.');
-    return;
-  }
-  // Prompt user to pick whichever file they want to load; hint shows expected filename
+  if (currentLanguage === 'EN' && englishXML && englishXML.data) { log('English XML already loaded.'); return; }
+  if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) { log('Malayalam XML already loaded.'); return; }
   promptUserToSelectXmlFile((currentLanguage === 'EN') ? 'English_Catholic_XML.xml' : 'malayalam_bible.xml');
 });
 
@@ -884,18 +832,12 @@ function promptUserToSelectXmlFile(filenameHint) {
   xmlFileInput.click();
 }
 
-/* Language toggle: just change pointers to in-memory structures, no re-fetch */
+/* Language toggle */
 langBtn.addEventListener('click', async () => {
-  if (currentLanguage === 'EN') {
-    // switching to ML...
-    document.body.setAttribute("data-language", "ML");
-  } else {
-    // switching back to EN...
-    document.body.setAttribute("data-language", "EN");
-  }
+  if (currentLanguage === 'EN') document.body.setAttribute("data-language", "ML");
+  else document.body.setAttribute("data-language", "EN");
 
   if (currentLanguage === 'EN') {
-    // Switch to Malayalam if loaded, else prompt user to pick ML file
     if (malayalamXML && malayalamXML.data) {
       currentLanguage = 'ML';
       bibleData = malayalamXML.data;
@@ -905,12 +847,10 @@ langBtn.addEventListener('click', async () => {
       log('Language switched to Malayalam (in-memory).');
       if (currentRef) showVerse(currentRef);
     } else {
-      // Ask user to load malayalam file
       log('Malayalam XML not loaded. Please select malayalam_bible.xml.');
       promptUserToSelectXmlFile('malayalam_bible.xml');
     }
   } else {
-    // Switch to English if loaded, else prompt to load
     if (englishXML && englishXML.data) {
       currentLanguage = 'EN';
       bibleData = englishXML.data;
@@ -926,7 +866,28 @@ langBtn.addEventListener('click', async () => {
   }
 });
 
-/* Initialize: preload both XML files */
+/* ========= Responsive font: update from CSS unless user adjusted ========= */
+function refreshFontSizeFromCssIfAllowed() {
+  if (userAdjustedFont) return;
+  const fs = readComputedVerseFontSize();
+  baseFontSize = fs;
+  verseBodyEl.style.fontSize = baseFontSize + 'px';
+}
+
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  if (_resizeTimer) clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => { refreshFontSizeFromCssIfAllowed(); }, 120);
+});
+
+/* Debounced init to let fonts load before measurement */
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    refreshFontSizeFromCssIfAllowed();
+  }, 120);
+});
+
+/* ========= Start preloading on init ========= */
 (async function init(){
   await preloadBothXml();
 })();
