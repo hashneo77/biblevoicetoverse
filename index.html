@@ -421,42 +421,134 @@ let currentLanguage = 'EN'; // 'EN' or 'ML'
 
 /* Parse Zefania XML into structured object and english->xmlKey map */
 function parseBibleXMLString(xmlString) {
-  try {
+  // Helper: attempt parsing and return {doc, parsererror} object
+  function tryParse(str) {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, "application/xml");
-    const parseError = doc.querySelector("parsererror");
-    if (parseError) throw new Error("XML parse error");
+    const doc = parser.parseFromString(str, "application/xml");
+    const parseErrorElem = doc.querySelector("parsererror");
+    return { doc, parseErrorElem };
+  }
 
-    const bibleDataLocal = {};
-    const englishToKeyMap = {};
-    const books = doc.getElementsByTagName("BIBLEBOOK");
-    for (let i=0; i<books.length; i++) {
-      const book = books[i];
-      const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i+1}`;
-      const bsname = book.getAttribute("bsname"); // english name
-      bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
-      if (bsname) englishToKeyMap[ bsname.toLowerCase() ] = xmlKey;
-      const chapters = book.getElementsByTagName("CHAPTER");
-      for (let c=0;c<chapters.length;c++){
-        const chap = chapters[c];
-        const cnumber = chap.getAttribute("cnumber") || String(c+1);
-        bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
-        const verses = chap.getElementsByTagName("VERS");
-        for (let v=0; v<verses.length; v++){
-          const vers = verses[v];
-          const vnumber = vers.getAttribute("vnumber") || String(v+1);
-          const text = (vers.textContent || "").trim();
-          bibleDataLocal[xmlKey][cnumber][vnumber] = text;
+  try {
+    // quick sanity log for debugging: show first 1000 chars (trim control)
+    try {
+      const sample = xmlString.slice(0, 1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n');
+      console.log("parseBibleXMLString: xml sample (first 1k):", sample);
+    } catch (e) { /* ignore logging issues */ }
+
+    // first attempt
+    let { doc, parseErrorElem } = tryParse(xmlString);
+    if (!parseErrorElem) {
+      // success: convert doc -> data structure
+      const bibleDataLocal = {};
+      const englishToKeyMap = {};
+      const books = doc.getElementsByTagName("BIBLEBOOK");
+      for (let i=0; i<books.length; i++) {
+        const book = books[i];
+        const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i+1}`;
+        const bsname = book.getAttribute("bsname");
+        bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
+        if (bsname) englishToKeyMap[ bsname.toLowerCase() ] = xmlKey;
+        const chapters = book.getElementsByTagName("CHAPTER");
+        for (let c=0;c<chapters.length;c++){
+          const chap = chapters[c];
+          const cnumber = chap.getAttribute("cnumber") || String(c+1);
+          bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
+          const verses = chap.getElementsByTagName("VERS");
+          for (let v=0; v<verses.length; v++){
+            const vers = verses[v];
+            const vnumber = vers.getAttribute("vnumber") || String(v+1);
+            const text = (vers.textContent || "").trim();
+            bibleDataLocal[xmlKey][cnumber][vnumber] = text;
+          }
         }
       }
+      const bookNamesSet = Object.keys(bibleDataLocal);
+      return { bibleDataLocal, bookNamesSet, englishToKeyMap };
     }
-    const bookNamesSet = Object.keys(bibleDataLocal);
-    return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+
+    // parseError found -> log helpful diagnostics and attempt a gentle cleanup and retry
+    console.warn("XML parse returned parsererror. Attempting recovery...");
+
+    // Log parsererror node content (different browsers expose different shapes)
+    try {
+      console.groupCollapsed("XML parsererror details");
+      console.error(parseErrorElem.textContent || parseErrorElem.innerHTML || parseErrorElem);
+      console.groupEnd();
+    } catch (e) { console.warn("Could not log parsererror details:", e); }
+
+    // Heuristics: remove BOM and illegal control chars (except \t \n \r)
+    let cleaned = xmlString;
+
+    // Remove UTF-8 BOM if present
+    if (cleaned.charCodeAt(0) === 0xFEFF) {
+      console.warn("Removing UTF-8 BOM (0xFEFF) from XML string before retry.");
+      cleaned = cleaned.slice(1);
+    }
+
+    // Remove ASCII control characters except TAB(9), LF(10), CR(13)
+    cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+
+    // Some malformed exports include ampersands that are not entities; do NOT replace all & blindly.
+    // We will only attempt an entity-safe replacement of common problematic sequences like " & " -> " &amp; "
+    // but only if we detect a bare ampersand not followed by a valid entity pattern.
+    // Avoid overcorrecting; only do this as a last resort if the parse error mentions '&'.
+    const errText = (parseErrorElem.textContent || '').toLowerCase();
+    if (errText.includes('&') && cleaned.includes('&')) {
+      // replace lone ampersands (heuristic): ampersand not followed by word+; or #num;
+      cleaned = cleaned.replace(/&(?!(#\d+;)|([a-zA-Z0-9]+;))/g, '&amp;');
+      console.warn("Attempted to escape lone ampersands in XML before retry.");
+    }
+
+    // Show first 500 chars of cleaned for debugging
+    try {
+      console.log("parseBibleXMLString: cleaned xml sample (first 500):", cleaned.slice(0,500).replace(/\r/g,'\\r').replace(/\n/g,'\\n'));
+    } catch (e) { /* ignore */ }
+
+    // Retry parse
+    let retry = tryParse(cleaned);
+    if (!retry.parseErrorElem) {
+      console.info("XML parse succeeded after cleaning.");
+      // build object same as above
+      const bibleDataLocal = {};
+      const englishToKeyMap = {};
+      const books = retry.doc.getElementsByTagName("BIBLEBOOK");
+      for (let i=0; i<books.length; i++) {
+        const book = books[i];
+        const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i+1}`;
+        const bsname = book.getAttribute("bsname");
+        bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
+        if (bsname) englishToKeyMap[ bsname.toLowerCase() ] = xmlKey;
+        const chapters = book.getElementsByTagName("CHAPTER");
+        for (let c=0;c<chapters.length;c++){
+          const chap = chapters[c];
+          const cnumber = chap.getAttribute("cnumber") || String(c+1);
+          bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
+          const verses = chap.getElementsByTagName("VERS");
+          for (let v=0; v<verses.length; v++){
+            const vers = verses[v];
+            const vnumber = vers.getAttribute("vnumber") || String(v+1);
+            const text = (vers.textContent || "").trim();
+            bibleDataLocal[xmlKey][cnumber][vnumber] = text;
+          }
+        }
+      }
+      const bookNamesSet = Object.keys(bibleDataLocal);
+      return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+    }
+
+    // still errors — log final parsererror and bail out
+    console.error("XML parsing still failed after cleaning. Final parsererror:");
+    try {
+      console.error(retry.parseErrorElem.textContent || retry.parseErrorElem.innerHTML || retry.parseErrorElem);
+    } catch (e) { console.error(retry.parseErrorElem); }
+    return null;
   } catch (e) {
-    console.error(e);
+    console.error("parseBibleXMLString unexpected error:", e);
     return null;
   }
 }
+
 
 /* Helper to assign parsed object to english or malayalam slot */
 function assignParsedToLang(parsedObj, lang) {
@@ -479,17 +571,46 @@ function assignParsedToLang(parsedObj, lang) {
 /* Load XML from path and return parsed object or null */
 async function fetchAndParse(path) {
   try {
-    const resp = await fetch(path, { cache: 'no-store' });
-    if (!resp.ok) throw new Error('Fetch status ' + resp.status);
-    const txt = await resp.text();
-    const parsed = parseBibleXMLString(txt);
-    if (!parsed) throw new Error('Failed to parse XML from ' + path);
-    return parsed;
+    // if path is array, try sequentially like earlier helper
+    const candidates = Array.isArray(path) ? path : [path];
+    for (const p of candidates) {
+      try {
+        console.log('Attempting fetch:', p);
+        const resp = await fetch(p, { cache: 'no-store' });
+        if (!resp.ok) {
+          console.warn('Fetch returned non-ok for', p, resp.status);
+          continue;
+        }
+        const txt = await resp.text();
+
+        // Quick size log
+        console.log(`Fetched ${p} — length ${txt.length} chars`);
+
+        // Try parsing
+        const parsed = parseBibleXMLString(txt);
+        if (!parsed) {
+          console.warn('Failed to parse XML from', p);
+          // dump a small snippet to help debugging (first 1000)
+          try {
+            console.log('Snippet (first 1000 chars):', txt.slice(0,1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n'));
+          } catch (e) { /* ignore */ }
+          continue;
+        }
+        console.log('Successfully fetched & parsed', p);
+        return parsed;
+      } catch (err) {
+        console.warn('fetchAndParse error for', p, err && err.message ? err.message : err);
+        // continue to next candidate
+      }
+    }
+    // nothing worked
+    return null;
   } catch (e) {
-    console.warn('fetchAndParse failed for', path, e);
+    console.error("fetchAndParse unexpected error:", e);
     return null;
   }
 }
+
 
 /* Resolve spoken (English canonical) book name to the current XML's key */
 function resolveBookName(spokenBook) {
