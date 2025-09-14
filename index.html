@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Bible Voice</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Malayalam:wght@400;700&display=swap" rel="stylesheet">
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 
@@ -30,6 +31,11 @@
     body[data-theme="dark"] {
       background: linear-gradient(180deg, #071028 0%, var(--bg-dark) 100%);
       color: var(--text-dark);
+    }
+
+    body[data-language="ML"] .verse-body,
+    body[data-language="ML"] .verse-ref {
+      font-family: "Noto Serif Malayalam", "Noto Sans Malayalam", serif;
     }
 
     /* Light theme */
@@ -880,6 +886,14 @@ function promptUserToSelectXmlFile(filenameHint) {
 
 /* Language toggle: just change pointers to in-memory structures, no re-fetch */
 langBtn.addEventListener('click', async () => {
+  if (currentLanguage === 'EN') {
+    // switching to ML...
+    document.body.setAttribute("data-language", "ML");
+  } else {
+    // switching back to EN...
+    document.body.setAttribute("data-language", "EN");
+  }
+
   if (currentLanguage === 'EN') {
     // Switch to Malayalam if loaded, else prompt user to pick ML file
     if (malayalamXML && malayalamXML.data) {
