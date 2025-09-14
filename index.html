@@ -640,7 +640,7 @@ if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){ log('SpeechReco
 else{
   const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
   const recog=new SpeechRecognition();
-  recog.lang='en-US';recog.interimResults=false;recog.maxAlternatives=1;
+  recog.lang='en-US';recog.continuous = true;recog.interimResults=true;recog.maxAlternatives=1;
   let listening=false;
 
   startStopBtn.addEventListener('click',()=>{
