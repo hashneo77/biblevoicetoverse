@@ -484,31 +484,9 @@ function parseReference(text){
   for (let len = Math.min(3, tokens.length); len >= 1; len--) {
     const candidate = tokens.slice(0, len).join(' ');
     console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
-
-    let book = null;
-
-    // 1) Exact alias match
     if (BOOK_ALIASES[candidate]) {
-      book = BOOK_ALIASES[candidate];
+      const book = BOOK_ALIASES[candidate];
       console.log("✅ Matched book alias:", candidate, "→", book);
-    } else {
-      // 2) Double Metaphone fuzzy check
-      const [p, sKey] = doubleMetaphone(candidate);
-      console.log("🔹 DoubleMetaphone:", candidate, "→", p, sKey);
-
-      // Try to find any BOOK_ALIASES key with same metaphone
-      for (const alias in BOOK_ALIASES) {
-        const [ap, as] = doubleMetaphone(alias);
-        if (p === ap || p === as || sKey === ap || sKey === as) {
-          book = BOOK_ALIASES[alias];
-          console.log("🔎 Fuzzy matched by metaphone:", candidate, "→", alias, "→", book);
-          break;
-        }
-      }
-    }
-
-    if (book) {
-      // Found a book, now handle the rest (chapter/verse)
       let rest = tokens.slice(len).join(' ');
       console.log("🔹 Raw remaining text after book:", rest);
       const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
@@ -538,7 +516,6 @@ function parseReference(text){
       console.log("❌ No match for book alias:", candidate);
     }
   }
-
   console.log("⚠️ No valid reference found.");
   return null;
 }
