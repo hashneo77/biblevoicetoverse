@@ -367,32 +367,68 @@ const BOOK_ALIASES = {
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
 function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
 
-function parseReference(text){
+function parseReference(text) {
+  console.log("🔹 Input text:", text);
+
   const s = normalizeSpoken(text);
+  console.log("🔹 Normalized text:", s);
+
   const tokens = s.split(' ').filter(Boolean);
+  console.log("🔹 Tokens:", tokens);
+
   // try up to 3-word book tokens (e.g. 'song of songs')
-  for(let len=Math.min(3,tokens.length);len>=1;len--){
-    const candidate=tokens.slice(0,len).join(' ');
-    if(BOOK_ALIASES[candidate]){
-      const book=BOOK_ALIASES[candidate];
-      const rest=tokens.slice(len).join(' ');
-      const colon=rest.match(/(\d+):(\d+)/);
-      if(colon)return{book,chapter:+colon[1],verse:+colon[2]};
-      const nums=rest.split(/\s+/).filter(Boolean);
-      if(nums.length>=2){
-        const c=+nums[0]||wordsToNumber(nums[0]);
-        const v=+nums[1]||wordsToNumber(nums[1]);
-        if(c&&v)return{book,chapter:c,verse:v};
+  for (let len = Math.min(3, tokens.length); len >= 1; len--) {
+    const candidate = tokens.slice(0, len).join(' ');
+    console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
+
+    if (BOOK_ALIASES[candidate]) {
+      const book = BOOK_ALIASES[candidate];
+      console.log("✅ Matched book alias:", candidate, "→", book);
+
+      const rest = tokens.slice(len).join(' ');
+      console.log("🔹 Remaining tokens after book:", rest);
+
+      // Case 1: chapter:verse (e.g. "3:16")
+      const colon = rest.match(/(\d+):(\d+)/);
+      if (colon) {
+        console.log("✅ Found chapter:verse pattern:", colon[0]);
+        return { book, chapter: +colon[1], verse: +colon[2] };
       }
-      // maybe user said only chapter (e.g. John 3) -> default verse 1
-      if(nums.length===1){
-        const c=+nums[0]||wordsToNumber(nums[0]);
-        if(c) return {book, chapter:c, verse:1};
+
+      // Case 2: separate numbers (e.g. "3 16")
+      const nums = rest.split(/\s+/).filter(Boolean);
+      console.log("🔹 Numbers after split:", nums);
+
+      if (nums.length >= 2) {
+        const c = +nums[0] || wordsToNumber(nums[0]);
+        const v = +nums[1] || wordsToNumber(nums[1]);
+        console.log("🔹 Parsed chapter:", c, "verse:", v);
+
+        if (c && v) {
+          console.log("✅ Returning book/chapter/verse from numbers");
+          return { book, chapter: c, verse: v };
+        }
       }
+
+      // Case 3: only chapter (default verse = 1)
+      if (nums.length === 1) {
+        const c = +nums[0] || wordsToNumber(nums[0]);
+        console.log("🔹 Parsed single chapter number:", c);
+
+        if (c) {
+          console.log("✅ Returning book/chapter with default verse 1");
+          return { book, chapter: c, verse: 1 };
+        }
+      }
+    } else {
+      console.log("❌ No match for book alias:", candidate);
     }
   }
+
+  console.log("⚠️ No valid reference found.");
   return null;
 }
+
 
 /* DOM refs */
 const startStopBtn=document.getElementById('startStopBtn');
