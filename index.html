@@ -752,6 +752,22 @@ document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&
   }, { passive: false });
 })();
 
+/* Toggle language on "E" keypress (ignore when typing in inputs/textareas/contenteditable) */
+document.addEventListener('keydown', (ev) => {
+  const active = document.activeElement;
+  const tag = active && active.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
+  try {
+    if (ev.key && ev.key.toLowerCase() === 'e') {
+      ev.preventDefault();
+      if (langBtn) langBtn.click(); // reuses your existing langBtn click handler
+    }
+  } catch (err) {
+    console.warn('Language toggle key handler error', err);
+  }
+});
+
+
 /* ========= File input handler ========= */
 xmlFileInput.addEventListener('change', async (ev) => {
   const f = ev.target.files && ev.target.files[0];
