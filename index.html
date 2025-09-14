@@ -308,7 +308,7 @@
 const BOOK_ALIASES = {
   "genesis":"Genesis","exodus":"Exodus","leviticus":"Leviticus","numbers":"Numbers","deuteronomy":"Deuteronomy",
   "joshua":"Joshua","judges":"Judges","ruth":"Ruth","was":"verse",
-  "1 samuel":"1 Samuel","one samuel":"1 Samuel","first samuel":"1 Samuel"," I say a":"Isaiah",
+  "1 samuel":"1 Samuel","one samuel":"1 Samuel","first samuel":"1 Samuel","I say a":"Isaiah","I say":"Isaiah","Isaya":"Isaiah",
   "2 samuel":"2 Samuel","two samuel":"2 Samuel","second samuel":"2 Samuel",
   "1 kings":"1 Kings","one kings":"1 Kings","first kings":"1 Kings",
   "2 kings":"2 Kings","two kings":"2 Kings","second kings":"2 Kings","relations":"Galatians","Relations":"Galatians",
@@ -690,7 +690,7 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       if (parsed) {
         await showVerse(parsed);
       } else {
-        log('Could not parse reference from final transcript.');
+        log('Parsed:'+parsed+':Could not parse reference from final transcript.');
       }
     }
   };
