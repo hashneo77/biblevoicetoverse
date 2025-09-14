@@ -690,7 +690,7 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       if (parsed) {
         await showVerse(parsed);
       } else {
-        log('Parsed:'+parsed+':Could not parse reference from final transcript.');
+        log('Input to Parse:'+stable+':Could not parse reference from final transcript.');
       }
     }
   };
