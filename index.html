@@ -367,13 +367,13 @@ const BOOK_ALIASES = {
 function normalizeSpoken(s){return s.trim().replace(/\bchapter\b/gi,' ').replace(/\bverse\b/gi,' ').replace(/\s+/g,' ').toLowerCase();}
 function wordsToNumber(w){const m={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10};if(!isNaN(Number(w))) return Number(w);return m[w]||null;}
 
-function parseReference(text) {
+function parseReference(text){
   console.log("🔹 Input text:", text);
 
   const s = normalizeSpoken(text);
   console.log("🔹 Normalized text:", s);
 
-  const tokens = s.split(' ').filter(Boolean);
+  const tokens = s.split(/\s+/).filter(Boolean);
   console.log("🔹 Tokens:", tokens);
 
   // try up to 3-word book tokens (e.g. 'song of songs')
@@ -385,41 +385,65 @@ function parseReference(text) {
       const book = BOOK_ALIASES[candidate];
       console.log("✅ Matched book alias:", candidate, "→", book);
 
-      const rest = tokens.slice(len).join(' ');
-      console.log("🔹 Remaining tokens after book:", rest);
+      // remaining text AFTER the book words
+      let rest = tokens.slice(len).join(' ');
+      console.log("🔹 Raw remaining text after book:", rest);
 
-      // Case 1: chapter:verse (e.g. "3:16")
+      // Clean punctuation and common filler words that might appear in natural speech.
+      // Add or remove filler words as needed.
+      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
+      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
+      // collapse multiple spaces
+      rest = rest.replace(/\s+/g, ' ');
+      console.log("🔹 Cleaned remaining text:", rest);
+
+      // Case 1: explicit chapter:verse (e.g. "3:16")
       const colon = rest.match(/(\d+):(\d+)/);
       if (colon) {
         console.log("✅ Found chapter:verse pattern:", colon[0]);
         return { book, chapter: +colon[1], verse: +colon[2] };
       }
 
-      // Case 2: separate numbers (e.g. "3 16")
+      // If there is nothing left after cleaning, maybe user only said the book.
+      if (!rest) {
+        console.log("⚠️ No chapter/verse provided after cleaning — returning null");
+        return null;
+      }
+
+      // Case 2: separate numbers (e.g. "3 16" or "three sixteen")
       const nums = rest.split(/\s+/).filter(Boolean);
-      console.log("🔹 Numbers after split:", nums);
+      console.log("🔹 Numbers/words after split:", nums);
 
       if (nums.length >= 2) {
-        const c = +nums[0] || wordsToNumber(nums[0]);
-        const v = +nums[1] || wordsToNumber(nums[1]);
-        console.log("🔹 Parsed chapter:", c, "verse:", v);
+        // try parse numeric string first, otherwise convert word-number
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
+        console.log("🔹 Parsed chapter candidate:", c, "verse candidate:", v);
 
-        if (c && v) {
+        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
           console.log("✅ Returning book/chapter/verse from numbers");
           return { book, chapter: c, verse: v };
+        } else {
+          console.log("❌ Could not parse both chapter & verse from:", nums[0], nums[1]);
         }
       }
 
       // Case 3: only chapter (default verse = 1)
       if (nums.length === 1) {
-        const c = +nums[0] || wordsToNumber(nums[0]);
-        console.log("🔹 Parsed single chapter number:", c);
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        console.log("🔹 Parsed single chapter candidate:", c);
 
-        if (c) {
+        if (Number.isFinite(c) && c > 0) {
           console.log("✅ Returning book/chapter with default verse 1");
           return { book, chapter: c, verse: 1 };
+        } else {
+          console.log("❌ Could not parse chapter from single token:", nums[0]);
         }
       }
+
+      // If we get here, the book matched but we could not parse numbers
+      console.log("⚠️ Book matched but failed to extract chapter/verse after cleaning.");
+      return null;
     } else {
       console.log("❌ No match for book alias:", candidate);
     }
@@ -428,6 +452,7 @@ function parseReference(text) {
   console.log("⚠️ No valid reference found.");
   return null;
 }
+
 
 
 /* DOM refs */
