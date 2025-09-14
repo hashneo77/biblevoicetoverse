@@ -636,44 +636,84 @@ document.addEventListener('keydown', (ev) => {
 });
 
 /* SpeechRecognition */
-if(!(window.SpeechRecognition||window.webkitSpeechRecognition)){ log('SpeechRecognition not available.'); startStopBtn.disabled=true; }
-else{
-  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-  const recog=new SpeechRecognition();
-  recog.lang='en-US';recog.continuous = true;recog.interimResults=true;recog.maxAlternatives=1;
-  let listening=false;
+if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+  log('SpeechRecognition not available.');
+  startStopBtn.disabled = true;
+} else {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recog = new SpeechRecognition();
 
-  startStopBtn.addEventListener('click',()=>{
+  // Continuous listening + interim results
+  recog.lang = 'en-US';
+  recog.interimResults = true;
+  recog.continuous = true;
+  recog.maxAlternatives = 1;
+
+  let listening = false;
+
+  startStopBtn.addEventListener('click', () => {
     try {
-      if(!listening){
+      if (!listening) {
         recog.start();
-        listening=true;
-        startStopBtn.innerText='Stop';
+        listening = true;
+        startStopBtn.innerText = 'Stop';
         log('Listening…');
-        setRecordingState(true); // show mic
+        setRecordingState(true);
       } else {
         recog.stop();
-        // onend will clear UI and setRecordingState(false)
+        // onend will clear UI
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   });
 
-  recog.onresult=async(ev)=>{
-    const text=ev.results[0][0].transcript;
-    transcriptEl.innerText='Heard: "'+text+'"';
-    const parsed=parseReference(text);
-    if(parsed) await showVerse(parsed);
-    else log('Could not parse reference.');
+  // Handle interim + final results
+  recog.onresult = async (ev) => {
+    let interim = '';
+    let final = '';
+
+    // Start from ev.resultIndex to get new results only
+    for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+      const r = ev.results[i];
+      if (r.isFinal) final += r[0].transcript + ' ';
+      else interim += r[0].transcript + ' ';
+    }
+
+    // Update transcript area with both interim and final
+    transcriptEl.innerText = (interim ? ('Interim: ' + interim + '\n') : '') + (final ? ('Final: ' + final) : '');
+
+    // Only attempt to parse when we have a final (stable) transcript
+    const stable = final.trim();
+    if (stable) {
+      const parsed = parseReference(stable);
+      if (parsed) {
+        await showVerse(parsed);
+      } else {
+        log('Could not parse reference from final transcript.');
+      }
+    }
   };
-  recog.onend=()=>{ listening=false; startStopBtn.innerText='Start'; setRecordingState(false); };
-  recog.onerror = (e) => {
-    console.warn('SpeechRecognition error', e);
-    // ensure recording state is cleared
+
+  // When recognition ends, update UI
+  recog.onend = () => {
     listening = false;
     startStopBtn.innerText = 'Start';
     setRecordingState(false);
+    log('Recognition ended.');
+    // Note: because continuous=true some browsers may call onend between chunks;
+    // if you want always-on listening, you can restart here (but I recommend explicit control).
+  };
+
+  recog.onerror = (e) => {
+    console.warn('SpeechRecognition error', e);
+    listening = false;
+    startStopBtn.innerText = 'Start';
+    setRecordingState(false);
+    log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e)));
   };
 }
+
 
 /* keyboard navigation */
 document.addEventListener('keydown',(ev)=>{
