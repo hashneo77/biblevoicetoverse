@@ -386,23 +386,19 @@ function doubleMetaphone(value) {
   return [primary, secondary];
 }
 
-/* Parse spoken reference using BOOK_ALIASES */
-/***********************
- * Fuzzy helpers
- ***********************/
+// Utility: normalize text (lowercase, remove diacritics, optionally keep letters only)
 function normalize(s) {
-  return String(s || '')
+  return s
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, "") // keep letters, digits and spaces
-    .trim();
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z]/g, ""); // keep letters only
 }
 
+// Longest Common Subsequence (LCS) length - O(m*n)
 function lcsLength(a, b) {
-  a = a || ""; b = b || "";
   const m = a.length, n = b.length;
-  if (!m || !n) return 0;
+  if (m === 0 || n === 0) return 0;
   const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
@@ -413,8 +409,8 @@ function lcsLength(a, b) {
   return dp[m][n];
 }
 
+// Levenshtein distance - O(m*n)
 function levenshtein(a, b) {
-  a = a || ""; b = b || "";
   const m = a.length, n = b.length;
   if (m === 0) return n;
   if (n === 0) return m;
@@ -425,61 +421,79 @@ function levenshtein(a, b) {
     cur[0] = i;
     for (let j = 1; j <= n; j++) {
       const cost = (a[i - 1] === b[j - 1]) ? 0 : 1;
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      cur[j] = Math.min(
+        prev[j] + 1,       // deletion
+        cur[j - 1] + 1,    // insertion
+        prev[j - 1] + cost // substitution
+      );
     }
     [prev, cur] = [cur, prev];
   }
   return prev[n];
 }
 
+// Longest common substring length (contiguous) - optional but sometimes helpful
 function longestCommonSubstring(a, b) {
-  a = a || ""; b = b || "";
   const m = a.length, n = b.length;
-  if (!m || !n) return 0;
+  if (m === 0 || n === 0) return 0;
   let maxLen = 0;
-  const dp = new Uint16Array(n + 1);
+  const dpRow = new Uint16Array(n + 1);
   for (let i = 1; i <= m; i++) {
-    for (let j = n; j >= 1; j--) {
+    for (let j = n; j >= 1; j--) { // iterate backwards to reuse single array
       if (a[i - 1] === b[j - 1]) {
-        dp[j] = dp[j - 1] + 1;
-        if (dp[j] > maxLen) maxLen = dp[j];
-      } else {
-        dp[j] = 0;
-      }
+        dpRow[j] = dpRow[j - 1] + 1;
+        if (dpRow[j] > maxLen) maxLen = dpRow[j];
+      } else dpRow[j] = 0;
     }
   }
   return maxLen;
 }
 
+// Combined scoring function
 function scoreCandidate(inputRaw, candidateRaw) {
-  const input = normalize(inputRaw).replace(/\s+/g, '');
-  const cand  = normalize(candidateRaw).replace(/\s+/g, '');
-  if (!input || !cand) return 0;
+  const input = normalize(inputRaw);
+  const cand  = normalize(candidateRaw);
+  if (input.length === 0 || cand.length === 0) return 0;
 
   const lcs = lcsLength(input, cand);
   const lev = levenshtein(input, cand);
   const lcsSub = longestCommonSubstring(input, cand);
 
+  // Normalize components:
+  // lcsNormalized: fraction of input's characters found in order in candidate (0..1)
   const lcsNormalized = lcs / Math.max(input.length, cand.length);
+
+  // editNormalized: convert distance to similarity (0..1)
   const maxLen = Math.max(input.length, cand.length);
-  const editNormalized = 1 - (lev / (maxLen + 1));
+  const editNormalized = 1 - (lev / (maxLen + 1)); // +1 to avoid div-by-zero
+
+  // substringNormalized: reward contiguous match portion relative to input length
   const subNormalized = lcsSub / input.length;
 
+  // If candidate starts with same first letter or prefix, slight bonus
   const prefixBonus = cand.startsWith(input[0]) ? 0.03 : 0;
-  const score = (0.55 * lcsNormalized) + (0.35 * editNormalized) + (0.07 * subNormalized) + prefixBonus;
+
+  // Weighted combination — tune weights as you like
+  const score = (0.5 * lcsNormalized) + (0.35 * editNormalized) + (0.1 * subNormalized) + prefixBonus;
+
+  // clamp to 0..1
   return Math.max(0, Math.min(1, score));
 }
 
-function findClosest(inputRaw, pool, topN = 3) {
-  const scored = pool.map(name => ({ name, score: scoreCandidate(inputRaw, name) }))
+// Function to find top N matches from pool
+function findClosest(input, pool, topN = 5, minScore = 0.25) {
+  const scored = pool.map(name => ({ name, score: scoreCandidate(input, name) }))
+                     .filter(x => x.score >= minScore)
                      .sort((a, b) => b.score - a.score)
                      .slice(0, topN);
   return scored;
 }
 
-/***********************
- * Parse reference with fuzzy fallback
- ***********************/
+
+const bibleBooks = Array.from(new Set(Object.values(BOOK_ALIASES).map(String)));
+
+
+/* Parse spoken reference using BOOK_ALIASES */
 function parseReference(text){
   // console.log("🔹 Input text:", text);
   const s = normalizeSpoken(text);
@@ -487,103 +501,45 @@ function parseReference(text){
   const tokens = s.split(/\s+/).filter(Boolean);
   // console.log("🔹 Tokens:", tokens);
 
-  // Generate a list of available books from BOOK_ALIASES or fallback to default list
-  const DEFAULT_BOOK_LIST = [
-    "Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth",
-    "1 Samuel","2 Samuel","1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah",
-    "Esther","Job","Psalms","Proverbs","Ecclesiastes","Song of Solomon","Isaiah","Jeremiah",
-    "Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos","Obadiah","Jonah","Micah",
-    "Nahum","Habakkuk","Zephaniah","Haggai","Zechariah","Malachi","Matthew","Mark","Luke",
-    "John","Acts","Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians","Philippians",
-    "Colossians","1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon",
-    "Hebrews","James","1 Peter","2 Peter","1 John","2 John","3 John","Jude","Revelation"
-  ];
-
-  const BOOK_LIST = (typeof BOOK_ALIASES === 'object' && BOOK_ALIASES)
-    ? Array.from(new Set(Object.values(BOOK_ALIASES).map(x => String(x))))
-    : DEFAULT_BOOK_LIST;
-
-  // Try exact alias matches (up to first 3 tokens) as before
   for (let len = Math.min(3, tokens.length); len >= 1; len--) {
     const candidate = tokens.slice(0, len).join(' ');
     // console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
-    if (BOOK_ALIASES && BOOK_ALIASES[candidate]) {
+    const book = null;
+    if (BOOK_ALIASES[candidate]) {
       const book = BOOK_ALIASES[candidate];
       // console.log("✅ Matched book alias:", candidate, "→", book);
-      return extractChapterVerseFromRest(book, tokens.slice(len));
     } else {
-      // console.log("❌ No match for book alias:", candidate);
+      const book = findClosest(candidate, bibleBooks, 1, 0.3)[0];
     }
-  }
+    let rest = tokens.slice(len).join(' ');
+      // console.log("🔹 Raw remaining text after book:", rest);
+      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
+      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
+      rest = rest.replace(/\s+/g, ' ');
+      // console.log("🔹 Cleaned remaining text:", rest);
 
-  // --- FUZZY FALLBACK: build some candidates from the start of tokens and fuzzy-match ---
-  // We'll try first 3 tokens combined, then first 2, then first 1.
-  for (let len = Math.min(3, tokens.length); len >= 1; len--) {
-    const spokenCandidate = tokens.slice(0, len).join(' ');
-    // find top fuzzy matches from BOOK_LIST
-    const matches = findClosest(spokenCandidate, BOOK_LIST, 5);
-    if (matches.length) {
-      const best = matches[0];
-      // threshold: only accept if score is reasonably high (tune if necessary)
-      if (best.score >= 0.45) {
-        const book = best.name;
-        // console.log(`🔎 Fuzzy matched "${spokenCandidate}" → "${book}" (score ${best.score.toFixed(2)})`);
-        // assume rest is tokens after the len we tried (same len as spokenCandidate)
-        return extractChapterVerseFromRest(book, tokens.slice(len));
+      const colon = rest.match(/(\d+):(\d+)/);
+      if (colon) {
+        return { book, chapter: +colon[1], verse: +colon[2] };
       }
-    }
+      if (!rest) return null;
+      const nums = rest.split(/\s+/).filter(Boolean);
+      if (nums.length >= 2) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
+        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
+          return { book, chapter: c, verse: v };
+        }
+      }
+      if (nums.length === 1) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
+      }
+      return null;
   }
-
-  // If still nothing, as a last-ditch try, fuzzy match whole input string to book list
-  const wholeInput = tokens.join(' ');
-  const globalMatches = findClosest(wholeInput, BOOK_LIST, 3);
-  if (globalMatches.length && globalMatches[0].score >= 0.40) {
-    const book = globalMatches[0].name;
-    // console.log(`🔎 Global fuzzy matched "${wholeInput}" → "${book}" (score ${globalMatches[0].score.toFixed(2)})`);
-    // No reliable rest tokens left — return book only (or null depending on your needs)
-    return extractChapterVerseFromRest(book, []);
-  }
-
   // console.log("⚠️ No valid reference found.");
   return null;
 }
-
-/***********************
- * Helper: extract chapter/verse from the remaining tokens (same logic you had)
- ***********************/
-function extractChapterVerseFromRest(book, restTokens) {
-  let rest = restTokens.join(' ');
-  const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
-  rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
-  rest = rest.replace(/\s+/g, ' ');
-  // console.log("🔹 Cleaned remaining text:", rest);
-
-  const colon = rest.match(/(\d+):(\d+)/);
-  if (colon) {
-    return { book, chapter: +colon[1], verse: +colon[2] };
-  }
-  if (!rest) return { book, chapter: undefined, verse: undefined }; // or return null if you prefer
-
-  const nums = rest.split(/\s+/).filter(Boolean);
-  if (nums.length >= 2) {
-    const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-    const v = (Number(nums[1]) || wordsToNumber(nums[1]));
-    if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
-      return { book, chapter: c, verse: v };
-    }
-  }
-  if (nums.length === 1) {
-    const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-    if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
-  }
-  return null;
-}
-
-/***********************
- * Note: wordsToNumber and normalizeSpoken are assumed to exist in your codebase.
- * If not, provide those utilities too (I can paste them if you want).
- ***********************/
-
 
 /* ========= DOM refs ========= */
 const startStopBtn=document.getElementById('startStopBtn');
