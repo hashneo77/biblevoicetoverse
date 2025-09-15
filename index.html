@@ -510,6 +510,7 @@ function parseReference(text){
       // console.log("✅ Matched book alias:", candidate, "→", book);
     } else {
       const book = findClosest(candidate, bibleBooks, 1, 0.3)[0];
+      console.log(book);
     }
     let rest = tokens.slice(len).join(' ');
       // console.log("🔹 Raw remaining text after book:", rest);
