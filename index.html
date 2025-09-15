@@ -663,6 +663,15 @@ async function fetchAndParse(path) {
   }
 }
 
+/* ========= Helpers ========= */
+function isTypingInInput() {
+  const active = document.activeElement;
+  if (!active) return false;
+  const tag = active.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable;
+}
+
+
 /* Resolve spoken (English canonical) book name to the current XML's key */
 function resolveBookName(spokenBook) {
   if (!bibleData) return spokenBook;
@@ -756,6 +765,7 @@ document.addEventListener('webkitfullscreenchange', () => { updateMaxButtonUI(is
 document.addEventListener('msfullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
 
 document.addEventListener('keydown', (ev) => {
+  if (isTypingInInput()) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
   if (ev.key && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleFullscreen(); }
@@ -957,7 +967,10 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
 }
 
 /* Keyboard nav */
-document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); if(ev.key==="ArrowRight"&&currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
+document.addEventListener('keydown',(ev)=>{ 
+  if (isTypingInInput()) return;
+  if(ev.key==="ArrowLeft"&&currentRef&&currentRef.verse>1) showVerse({...currentRef,verse:currentRef.verse-1}); 
+  if(ev.key==="ArrowRight"&&currentRef) showVerse({...currentRef,verse:currentRef.verse+1}); });
 
 (function() {
   let lastToggle = 0; const DEBOUNCE_MS = 400;
@@ -967,6 +980,7 @@ document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&
   }
   document.addEventListener('keydown', (ev) => {
     try {
+      if (isTypingInInput()) return;
       if (ev.key === 'm') { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
       if (ev.metaKey && (ev.code === 'Space' || ev.key.toLowerCase() === 'm')) { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
       if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 'm') { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
@@ -976,6 +990,7 @@ document.addEventListener('keydown',(ev)=>{ if(ev.key==="ArrowLeft"&&currentRef&
 
 /* Toggle language on "E" keypress (ignore when typing in inputs/textareas/contenteditable) */
 document.addEventListener('keydown', (ev) => {
+  if (isTypingInInput()) return;
   const active = document.activeElement;
   const tag = active && active.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
@@ -1005,6 +1020,7 @@ xmlFileInput.addEventListener('change', async (ev) => {
     if (lang === currentLanguage) {
       bibleData = (lang === 'EN') ? englishXML.data : malayalamXML.data;
       bibleBookNames = (lang === 'EN') ? englishXML.bookNames : malayalamXML.bookNames;
+      
       bibleEnglishToKeyMap = (lang === 'EN') ? englishXML.englishToKeyMap : malayalamXML.englishToKeyMap;
       refreshSearchIndex();
       if (currentRef) showVerse(currentRef);
