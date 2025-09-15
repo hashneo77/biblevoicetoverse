@@ -82,7 +82,7 @@
       border-radius:10px;
       font-weight:600;
       cursor:pointer;
-      transition: background .2s, color .2s, border .2s;
+      transition: background .2s, color .2s, border .2s, box-shadow .2s;
       background: rgba(0,0,0,0.04);
     }
     body[data-theme="dark"] .btn {
@@ -182,7 +182,7 @@
     /* hidden file input visually */
     #xmlFileInput { display:none; }
 
-    /* Mic icon styling */
+    /* Mic icon styling (kept for reference; currently not used) */
     .mic-icon {
       display: inline-block;
       width: 22px;
@@ -245,11 +245,20 @@
     }
     .verse-max-btn:focus { outline: 3px solid rgba(0,0,0,0.08); }
 
-    .btn.recording {
-    background-color: red;
-    color: white;
-  }
+    /* Theme-aware recording styles (specificity matches theme selectors) */
+    body[data-theme="light"] .btn.recording {
+      background: linear-gradient(135deg, #ff4b4b, #d40000);
+      color: white;
+      border-color: rgba(212, 0, 0, 0.12);
+      box-shadow: 0 6px 18px rgba(214,0,0,0.12);
+    }
 
+    body[data-theme="dark"] .btn.recording {
+      background: linear-gradient(135deg, #ff5a5a, #d60000);
+      color: white;
+      border-color: rgba(255,255,255,0.06);
+      box-shadow: 0 6px 18px rgba(214,0,0,0.18);
+    }
 
     /* Recording indicator button */
     .verse-rec-btn {
@@ -298,7 +307,7 @@
 
       <div class="controls" role="toolbar" aria-label="Controls">
         <button id="startStopBtn" class="btn" aria-pressed="false">Start</button>
-        <!-- <span id="micIcon" class="mic-icon" role="img" aria-hidden="true" title="Microphone status"></span> -->
+        <!-- mic icon intentionally removed from the UI; kept CSS above for reference -->
         <button id="prevBtn" class="btn secondary icon" title="Previous verse">◀</button>
         <button id="nextBtn" class="btn secondary icon" title="Next verse">▶</button>
         <button id="langBtn" class="btn secondary" title="Toggle language">EN / ML</button>
@@ -347,152 +356,33 @@ function wordsToNumber(w){
 }
 
 function doubleMetaphone(value) {
-  if (!value) return ["", ""];
-  value = value.toLowerCase().trim();
-
-  // Keep only letters
-  value = value.replace(/[^a-z]/g, "");
-
-  if (!value) return ["", ""];
-
-  const isSlavoGermanic = /w|k|cz|witz/.test(value);
+  if (!value) return ["", ""]; value = value.toLowerCase().trim();
+  value = value.replace(/[^a-z]/g, ""); if (!value) return ["", ""];
   const length = value.length;
-  let primary = "";
-  let secondary = "";
-  let index = 0;
-
-  function add(p, s) {
-    primary += p;
-    secondary += (s !== undefined ? s : p);
-  }
-
+  let primary = ""; let secondary = ""; let index = 0;
+  function add(p, s) { primary += p; secondary += (s !== undefined ? s : p); }
   while (index < length) {
     const char = value[index];
-
-    // Simplified handling of key consonants
-    if (char === "a" || char === "e" || char === "i" || char === "o" || char === "u" || char === "y") {
-      if (index === 0) add("A");
-      index++;
-      continue;
-    }
-
-    if (char === "b") {
-      add("P");
-      index += (value[index + 1] === "b") ? 2 : 1;
-      continue;
-    }
-
+    if (/[aeiouy]/.test(char)) { if (index === 0) add("A"); index++; continue; }
+    if (char === "b") { add("P"); index += (value[index + 1] === "b") ? 2 : 1; continue; }
     if (char === "c") {
-      if (value.substr(index, 2) === "ch") {
-        add("X"); // like "Kh"
-        index += 2;
-        continue;
-      }
-      add("K");
-      index += (value[index + 1] === "c") ? 2 : 1;
-      continue;
+      if (value.substr(index,2) === "ch") { add("X"); index+=2; continue; }
+      add("K"); index += (value[index+1] === "c") ? 2 : 1; continue;
     }
-
-    if (char === "d") {
-      if (value.substr(index, 2) === "dg") {
-        add("J");
-        index += 2;
-      } else {
-        add("T");
-        index += 1;
-      }
-      continue;
-    }
-
-    if (char === "g") {
-      if (value[index + 1] === "h") {
-        add("K");
-        index += 2;
-        continue;
-      }
-      add("K");
-      index += 1;
-      continue;
-    }
-
-    if (char === "h") {
-      if (/[aeiou]/.test(value[index + 1])) {
-        add("H");
-        index++;
-      }
-      index++;
-      continue;
-    }
-
-    if (char === "k") {
-      add("K");
-      index += (value[index + 1] === "k") ? 2 : 1;
-      continue;
-    }
-
-    if (char === "p") {
-      add("P");
-      index += (value[index + 1] === "p") ? 2 : 1;
-      continue;
-    }
-
-    if (char === "q") {
-      add("K");
-      index++;
-      continue;
-    }
-
-    if (char === "s") {
-      if (value.substr(index, 2) === "sh") {
-        add("X");
-        index += 2;
-        continue;
-      }
-      add("S");
-      index += 1;
-      continue;
-    }
-
-    if (char === "t") {
-      if (value.substr(index, 2) === "th") {
-        add("0", "T"); // "th"
-        index += 2;
-        continue;
-      }
-      add("T");
-      index++;
-      continue;
-    }
-
-    if (char === "v") {
-      add("F");
-      index++;
-      continue;
-    }
-
-    if (char === "w" || char === "y") {
-      if (/[aeiou]/.test(value[index + 1])) add("A");
-      index++;
-      continue;
-    }
-
-    if (char === "x") {
-      add("KS");
-      index++;
-      continue;
-    }
-
-    if (char === "z") {
-      add("S");
-      index++;
-      continue;
-    }
-
-    // Default: just keep consonant
-    add(char.toUpperCase());
-    index++;
+    if (char === "d") { if (value.substr(index,2) === "dg") { add("J"); index+=2; } else { add("T"); index++; } continue; }
+    if (char === "g") { if (value[index+1]==="h") { add("K"); index+=2; continue; } add("K"); index++; continue; }
+    if (char === "h") { if (/[aeiou]/.test(value[index+1])) { add("H"); index++; } index++; continue; }
+    if (char === "k") { add("K"); index += (value[index+1]==="k")?2:1; continue; }
+    if (char === "p") { add("P"); index += (value[index+1]==="p")?2:1; continue; }
+    if (char === "q") { add("K"); index++; continue; }
+    if (char === "s") { if (value.substr(index,2)==="sh") { add("X"); index+=2; continue;} add("S"); index++; continue; }
+    if (char === "t") { if (value.substr(index,2)==="th") { add("0","T"); index+=2; continue; } add("T"); index++; continue; }
+    if (char === "v") { add("F"); index++; continue; }
+    if (char === "w" || char === "y") { if (/[aeiou]/.test(value[index+1])) add("A"); index++; continue; }
+    if (char === "x") { add("KS"); index++; continue; }
+    if (char === "z") { add("S"); index++; continue; }
+    add(char.toUpperCase()); index++;
   }
-
   return [primary, secondary];
 }
 
@@ -545,7 +435,6 @@ function parseReference(text){
 
 /* ========= DOM refs ========= */
 const startStopBtn=document.getElementById('startStopBtn');
-//const micIcon=document.getElementById('micIcon');
 const prevBtn=document.getElementById('prevBtn');
 const nextBtn=document.getElementById('nextBtn');
 const transcriptEl=document.getElementById('transcript');
@@ -565,11 +454,7 @@ const verseRecBtn = document.getElementById('verseRecBtn');
 /* ========= App state ========= */
 let currentRef = null;
 
-/* Responsive + user-controlled font logic:
-   - CSS provides responsive font using clamp()
-   - JS reads computed size on init & resize and uses it as baseFontSize
-   - If user clicks A+/A- we treat that as userAdjustedFont and stop auto-overrides
-*/
+/* Responsive + user-controlled font logic */
 let baseFontSize = 44; // fallback
 let userAdjustedFont = false;
 
@@ -589,7 +474,7 @@ function readComputedVerseFontSize() {
 baseFontSize = readComputedVerseFontSize();
 verseBodyEl.style.fontSize = baseFontSize + 'px';
 
-/* ========= XML parsing utilities (unchanged logic, robust) ========= */
+/* ========= XML parsing utilities (unchanged logic) ========= */
 let englishXML = null;
 let malayalamXML = null;
 let bibleData = null;
@@ -840,19 +725,34 @@ function setRecordingState(isRecording) {
     startStopBtn.setAttribute('aria-pressed', 'true');
     startStopBtn.textContent = 'Stop';
     startStopBtn.title = 'Recording — click to stop';
+
+    if (verseRecBtn) {
+      verseRecBtn.classList.add('rec');
+      verseRecBtn.setAttribute('aria-hidden','false');
+      verseRecBtn.removeAttribute('hidden');
+      verseRecBtn.style.display = 'inline-flex';
+      verseRecBtn.title = 'Recording';
+    }
   } else {
     startStopBtn.classList.remove('recording');
     startStopBtn.setAttribute('aria-pressed', 'false');
     startStopBtn.textContent = 'Start';
     startStopBtn.title = 'Not recording — click to start';
+
+    if (verseRecBtn) {
+      verseRecBtn.classList.remove('rec');
+      verseRecBtn.setAttribute('aria-hidden','true');
+      verseRecBtn.setAttribute('hidden','');
+      verseRecBtn.style.display = 'none';
+      verseRecBtn.title = '';
+    }
   }
 }
 
-
-/* ========= SpeechRecognition wiring (same behavior) ========= */
+/* ========= SpeechRecognition wiring (same behavior, but UI via setRecordingState) ========= */
 if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
   log('SpeechRecognition not available.');
-  startStopBtn.disabled = true;
+  if (startStopBtn) startStopBtn.disabled = true;
 } else {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const recog = new SpeechRecognition();
@@ -867,12 +767,11 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
       if (!listening) {
         recog.start();
         listening = true;
-        startStopBtn.innerText = 'Stop';
-        startStopBtn.setAttribute('aria-pressed','true');
         log('Listening…');
         setRecordingState(true);
       } else {
         recog.stop();
+        // onend will call setRecordingState(false)
       }
     } catch (err) { console.error(err); }
   });
@@ -893,8 +792,17 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
     }
   };
 
-  recog.onend = () => { listening = false; startStopBtn.innerText = 'Start'; startStopBtn.setAttribute('aria-pressed','false'); setRecordingState(false); log('Recognition ended.'); };
-  recog.onerror = (e) => { console.warn('SpeechRecognition error', e); listening = false; startStopBtn.innerText = 'Start'; startStopBtn.setAttribute('aria-pressed','false'); setRecordingState(false); log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e))); };
+  recog.onend = () => {
+    listening = false;
+    setRecordingState(false);
+    log('Recognition ended.');
+  };
+  recog.onerror = (e) => {
+    listening = false;
+    setRecordingState(false);
+    log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e)));
+    console.warn('SpeechRecognition error', e);
+  };
 }
 
 /* Keyboard nav */
@@ -929,7 +837,6 @@ document.addEventListener('keydown', (ev) => {
     console.warn('Language toggle key handler error', err);
   }
 });
-
 
 /* ========= File input handler ========= */
 xmlFileInput.addEventListener('change', async (ev) => {
