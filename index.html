@@ -344,7 +344,7 @@ let BOOK_ALIASES = {};
   try {
     const res = await fetch('./book_aliases.json');
     if (res.ok) BOOK_ALIASES = await res.json();
-    console.log("✅ Loaded aliases:", BOOK_ALIASES);
+    // console.log("✅ Loaded aliases:", BOOK_ALIASES);
   } catch (e) { console.warn("Could not load book_aliases.json", e); }
 })();
 
@@ -388,24 +388,24 @@ function doubleMetaphone(value) {
 
 /* Parse spoken reference using BOOK_ALIASES */
 function parseReference(text){
-  console.log("🔹 Input text:", text);
+  // console.log("🔹 Input text:", text);
   const s = normalizeSpoken(text);
-  console.log("🔹 Normalized text:", s);
+  // console.log("🔹 Normalized text:", s);
   const tokens = s.split(/\s+/).filter(Boolean);
-  console.log("🔹 Tokens:", tokens);
+  // console.log("🔹 Tokens:", tokens);
 
   for (let len = Math.min(3, tokens.length); len >= 1; len--) {
     const candidate = tokens.slice(0, len).join(' ');
-    console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
+    // console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
     if (BOOK_ALIASES[candidate]) {
       const book = BOOK_ALIASES[candidate];
-      console.log("✅ Matched book alias:", candidate, "→", book);
+      // console.log("✅ Matched book alias:", candidate, "→", book);
       let rest = tokens.slice(len).join(' ');
-      console.log("🔹 Raw remaining text after book:", rest);
+      // console.log("🔹 Raw remaining text after book:", rest);
       const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
       rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
       rest = rest.replace(/\s+/g, ' ');
-      console.log("🔹 Cleaned remaining text:", rest);
+      // console.log("🔹 Cleaned remaining text:", rest);
 
       const colon = rest.match(/(\d+):(\d+)/);
       if (colon) {
@@ -426,10 +426,10 @@ function parseReference(text){
       }
       return null;
     } else {
-      console.log("❌ No match for book alias:", candidate);
+      // console.log("❌ No match for book alias:", candidate);
     }
   }
-  console.log("⚠️ No valid reference found.");
+  // console.log("⚠️ No valid reference found.");
   return null;
 }
 
@@ -458,7 +458,9 @@ let currentRef = null;
 let baseFontSize = 44; // fallback
 let userAdjustedFont = false;
 
-function log(msg){ logEl.innerText = msg; console.log(msg); }
+function log(msg){ logEl.innerText = msg; 
+  //console.log(msg); 
+}
 
 /* Read computed font-size (px) for verseBody */
 function readComputedVerseFontSize() {
@@ -591,21 +593,21 @@ async function fetchAndParse(path) {
     const candidates = Array.isArray(path) ? path : [path];
     for (const p of candidates) {
       try {
-        console.log('Attempting fetch:', p);
+        // console.log('Attempting fetch:', p);
         const resp = await fetch(p, { cache: 'no-store' });
         if (!resp.ok) {
           console.warn('Fetch returned non-ok for', p, resp.status);
           continue;
         }
         const txt = await resp.text();
-        console.log(`Fetched ${p} — length ${txt.length} chars`);
+        // console.log(`Fetched ${p} — length ${txt.length} chars`);
         const parsed = parseBibleXMLString(txt);
         if (!parsed) {
           console.warn('Failed to parse XML from', p);
           try { console.log('Snippet (first 1000 chars):', txt.slice(0,1000).replace(/\r/g,'\\r').replace(/\n/g,'\\n')); } catch (e) {}
           continue;
         }
-        console.log('Successfully fetched & parsed', p);
+        // console.log('Successfully fetched & parsed', p);
         return parsed;
       } catch (err) {
         console.warn('fetchAndParse error for', p, err && err.message ? err.message : err);
@@ -871,8 +873,18 @@ async function preloadBothXml() {
     fetchAndParse('English_Catholic_XML.xml'),
     fetchAndParse('malayalam_bible.xml')
   ]);
-  if (enParsed) { assignParsedToLang(enParsed, 'EN'); console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length); } else console.log('⚠️ English XML not available on server.');
-  if (mlParsed) { assignParsedToLang(mlParsed, 'ML'); console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length); } else console.log('⚠️ Malayalam XML not available on server.');
+  if (enParsed) { 
+    assignParsedToLang(enParsed, 'EN'); 
+    // console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length); 
+  } 
+    else 
+    // console.log('⚠️ English XML not available on server.');
+    if (mlParsed) { 
+      assignParsedToLang(mlParsed, 'ML'); 
+    // console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length); 
+  } 
+  else 
+  // console.log('⚠️ Malayalam XML not available on server.');
 
   if (englishXML && englishXML.data) {
     currentLanguage = 'EN';
