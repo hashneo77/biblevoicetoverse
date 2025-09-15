@@ -803,7 +803,20 @@ function updateSuggestions(query) {
     });
   }
 
-  // Verse text contains query
+  // 🔹 Book name suggestions
+  if (bibleBookNames && bibleBookNames.size) {
+    for (const book of bibleBookNames) {
+      if (book.toLowerCase().startsWith(q)) {
+        results.push({
+          ref: book,
+          preview: "(book name)",
+          parsed: { book, chapter: 1, verse: 1 }
+        });
+      }
+    }
+  }
+
+  // Verse text suggestions (limit after book name hits)
   for (const entry of searchIndex) {
     if (entry.combinedLower.includes(q)) {
       results.push({
@@ -811,7 +824,7 @@ function updateSuggestions(query) {
         preview: entry.text.slice(0,100) + (entry.text.length>100 ? "…" : ""),
         parsed: { book: entry.book, chapter: +entry.chapter, verse: +entry.verse }
       });
-      if (results.length > 10) break;
+      if (results.length > 15) break;
     }
   }
 
@@ -833,6 +846,7 @@ function updateSuggestions(query) {
     });
   });
 }
+
 
 // Input event
 searchInput.addEventListener('input', e => updateSuggestions(e.target.value.trim()));
