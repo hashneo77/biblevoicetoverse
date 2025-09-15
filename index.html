@@ -508,11 +508,7 @@ function parseReference(text){
     if (BOOK_ALIASES[candidate]) {
       const book = BOOK_ALIASES[candidate];
       // console.log("✅ Matched book alias:", candidate, "→", book);
-    } else {
-      const book = findClosest(candidate, bibleBooks, 1, 0.3)[0];
-      console.log(book);
-    }
-    let rest = tokens.slice(len).join(' ');
+      let rest = tokens.slice(len).join(' ');
       // console.log("🔹 Raw remaining text after book:", rest);
       const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
       rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
@@ -537,6 +533,36 @@ function parseReference(text){
         if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
       }
       return null;
+    } else {
+      const book = findClosest(candidate, bibleBooks, 1, 0.3)[0];
+      console.log(book);
+      let rest = tokens.slice(len).join(' ');
+      // console.log("🔹 Raw remaining text after book:", rest);
+      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
+      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
+      rest = rest.replace(/\s+/g, ' ');
+      // console.log("🔹 Cleaned remaining text:", rest);
+
+      const colon = rest.match(/(\d+):(\d+)/);
+      if (colon) {
+        return { book, chapter: +colon[1], verse: +colon[2] };
+      }
+      if (!rest) return null;
+      const nums = rest.split(/\s+/).filter(Boolean);
+      if (nums.length >= 2) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
+        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
+          return { book, chapter: c, verse: v };
+        }
+      }
+      if (nums.length === 1) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
+      }
+      return null;
+    }
+    
   }
   // console.log("⚠️ No valid reference found.");
   return null;
