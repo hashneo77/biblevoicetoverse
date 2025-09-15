@@ -1,0 +1,742 @@
+/* ========= Globals & Helpers ========= */
+let BOOK_ALIASES = {};
+(async function loadBookAliases() {
+    try {
+        const res = await fetch('./book_aliases.json');
+        if (res.ok) BOOK_ALIASES = await res.json();
+        // console.log("✅ Loaded aliases:", BOOK_ALIASES);
+    } catch (e) { console.warn("Could not load book_aliases.json", e); }
+})();
+
+function normalizeSpoken(s) { return s.trim().replace(/\bchapter\b/gi, ' ').replace(/\bverse\b/gi, ' ').replace(/\s+/g, ' ').toLowerCase(); }
+function wordsToNumber(w) {
+    const m = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12 };
+    if (!isNaN(Number(w))) return Number(w);
+    return m[w] || null;
+}
+
+function doubleMetaphone(value) {
+    if (!value) return ["", ""]; value = value.toLowerCase().trim();
+    value = value.replace(/[^a-z]/g, ""); if (!value) return ["", ""];
+    const length = value.length;
+    let primary = ""; let secondary = ""; let index = 0;
+    function add(p, s) { primary += p; secondary += (s !== undefined ? s : p); }
+    while (index < length) {
+        const char = value[index];
+        if (/[aeiouy]/.test(char)) { if (index === 0) add("A"); index++; continue; }
+        if (char === "b") { add("P"); index += (value[index + 1] === "b") ? 2 : 1; continue; }
+        if (char === "c") {
+            if (value.substr(index, 2) === "ch") { add("X"); index += 2; continue; }
+            add("K"); index += (value[index + 1] === "c") ? 2 : 1; continue;
+        }
+        if (char === "d") { if (value.substr(index, 2) === "dg") { add("J"); index += 2; } else { add("T"); index++; } continue; }
+        if (char === "g") { if (value[index + 1] === "h") { add("K"); index += 2; continue; } add("K"); index++; continue; }
+        if (char === "h") { if (/[aeiou]/.test(value[index + 1])) { add("H"); index++; } index++; continue; }
+        if (char === "k") { add("K"); index += (value[index + 1] === "k") ? 2 : 1; continue; }
+        if (char === "p") { add("P"); index += (value[index + 1] === "p") ? 2 : 1; continue; }
+        if (char === "q") { add("K"); index++; continue; }
+        if (char === "s") { if (value.substr(index, 2) === "sh") { add("X"); index += 2; continue; } add("S"); index++; continue; }
+        if (char === "t") { if (value.substr(index, 2) === "th") { add("0", "T"); index += 2; continue; } add("T"); index++; continue; }
+        if (char === "v") { add("F"); index++; continue; }
+        if (char === "w" || char === "y") { if (/[aeiou]/.test(value[index + 1])) add("A"); index++; continue; }
+        if (char === "x") { add("KS"); index++; continue; }
+        if (char === "z") { add("S"); index++; continue; }
+        add(char.toUpperCase()); index++;
+    }
+    return [primary, secondary];
+}
+
+/* Parse spoken reference using BOOK_ALIASES */
+function parseReference(text) {
+    const s = normalizeSpoken(text);
+    const tokens = s.split(/\s+/).filter(Boolean);
+
+    for (let len = Math.min(3, tokens.length); len >= 1; len--) {
+        const candidate = tokens.slice(0, len).join(' ');
+        if (BOOK_ALIASES[candidate]) {
+            const book = BOOK_ALIASES[candidate];
+            let rest = tokens.slice(len).join(' ');
+            const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
+            rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
+            rest = rest.replace(/\s+/g, ' ');
+
+            const colon = rest.match(/(\d+):(\d+)/);
+            if (colon) {
+                return { book, chapter: +colon[1], verse: +colon[2] };
+            }
+            if (!rest) return null;
+            const nums = rest.split(/\s+/).filter(Boolean);
+            if (nums.length >= 2) {
+                const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+                const v = (Number(nums[1]) || wordsToNumber(nums[1]));
+                if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
+                    return { book, chapter: c, verse: v };
+                }
+            }
+            if (nums.length === 1) {
+                const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+                if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
+            }
+            return null;
+        }
+    }
+    return null;
+}
+
+/* ========= DOM refs ========= */
+const startStopBtn = document.getElementById('startStopBtn');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const transcriptEl = document.getElementById('transcript');
+const verseRefEl = document.getElementById('verseRef');
+const verseBodyEl = document.getElementById('verseBody');
+const logEl = document.getElementById('log');
+const bigPlus = document.getElementById('bigPlus');
+const bigMinus = document.getElementById('bigMinus');
+const themeBtn = document.getElementById('themeBtn');
+const loadLocalBtn = document.getElementById('loadLocalBtn');
+const langBtn = document.getElementById('langBtn');
+const xmlFileInput = document.getElementById('xmlFileInput');
+const verseStage = document.getElementById('verseStage');
+const verseMaxBtn = document.getElementById('verseMaxBtn');
+const verseRecBtn = document.getElementById('verseRecBtn');
+
+/* ========= App state ========= */
+let currentRef = null;
+
+/* Responsive + user-controlled font logic */
+let baseFontSize = 44; // fallback
+let userAdjustedFont = false;
+
+function log(msg) { logEl.innerText = msg; }
+
+/* Read computed font-size (px) for verseBody */
+function readComputedVerseFontSize() {
+    try {
+        const s = window.getComputedStyle(verseBodyEl);
+        const fs = parseFloat(s && s.fontSize);
+        if (Number.isFinite(fs)) return Math.round(fs);
+    } catch (e) { /* ignore */ }
+    return baseFontSize;
+}
+
+/* Initialize baseFontSize from CSS responsive value */
+baseFontSize = readComputedVerseFontSize();
+verseBodyEl.style.fontSize = baseFontSize + 'px';
+
+/* ========= XML parsing utilities (unchanged logic) ========= */
+let englishXML = null;
+let malayalamXML = null;
+let bibleData = null;
+let bibleBookNames = null;
+let bibleEnglishToKeyMap = null;
+let currentLanguage = 'EN';
+
+function parseBibleXMLString(xmlString) {
+    function tryParse(str) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(str, "application/xml");
+        const parseErrorElem = doc.querySelector("parsererror");
+        return { doc, parseErrorElem };
+    }
+
+    try {
+        let { doc, parseErrorElem } = tryParse(xmlString);
+        if (!parseErrorElem) {
+            const bibleDataLocal = {};
+            const englishToKeyMap = {};
+            const books = doc.getElementsByTagName("BIBLEBOOK");
+            for (let i = 0; i < books.length; i++) {
+                const book = books[i];
+                const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i + 1}`;
+                const bsname = book.getAttribute("bsname");
+                bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
+                if (bsname) englishToKeyMap[bsname.toLowerCase()] = xmlKey;
+                const chapters = book.getElementsByTagName("CHAPTER");
+                for (let c = 0; c < chapters.length; c++) {
+                    const chap = chapters[c];
+                    const cnumber = chap.getAttribute("cnumber") || String(c + 1);
+                    bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
+                    const verses = chap.getElementsByTagName("VERS");
+                    for (let v = 0; v < verses.length; v++) {
+                        const vers = verses[v];
+                        const vnumber = vers.getAttribute("vnumber") || String(v + 1);
+                        const text = (vers.textContent || "").trim();
+                        bibleDataLocal[xmlKey][cnumber][vnumber] = text;
+                    }
+                }
+            }
+            const bookNamesSet = Object.keys(bibleDataLocal);
+            return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+        }
+
+        console.warn("XML parse returned parsererror. Attempting recovery...");
+        let cleaned = xmlString;
+        if (cleaned.charCodeAt(0) === 0xFEFF) cleaned = cleaned.slice(1);
+        cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+        const errText = (parseErrorElem.textContent || '').toLowerCase();
+        if (errText.includes('&') && cleaned.includes('&')) {
+            cleaned = cleaned.replace(/&(?!(#\d+;)|([a-zA-Z0-9]+;))/g, '&amp;');
+            console.warn("Attempted to escape lone ampersands in XML before retry.");
+        }
+
+        let retry = tryParse(cleaned);
+        if (!retry.parseErrorElem) {
+            console.info("XML parse succeeded after cleaning.");
+            const bibleDataLocal = {};
+            const englishToKeyMap = {};
+            const books = retry.doc.getElementsByTagName("BIBLEBOOK");
+            for (let i = 0; i < books.length; i++) {
+                const book = books[i];
+                const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i + 1}`;
+                const bsname = book.getAttribute("bsname");
+                bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
+                if (bsname) englishToKeyMap[bsname.toLowerCase()] = xmlKey;
+                const chapters = book.getElementsByTagName("CHAPTER");
+                for (let c = 0; c < chapters.length; c++) {
+                    const chap = chapters[c];
+                    const cnumber = chap.getAttribute("cnumber") || String(c + 1);
+                    bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
+                    const verses = chap.getElementsByTagName("VERS");
+                    for (let v = 0; v < verses.length; v++) {
+                        const vers = verses[v];
+                        const vnumber = vers.getAttribute("vnumber") || String(v + 1);
+                        const text = (vers.textContent || "").trim();
+                        bibleDataLocal[xmlKey][cnumber][vnumber] = text;
+                    }
+                }
+            }
+            const bookNamesSet = Object.keys(bibleDataLocal);
+            return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+        }
+
+        console.error("XML parsing still failed after cleaning. Final parsererror:");
+        try { console.error(retry.parseErrorElem.textContent || retry.parseErrorElem.innerHTML || retry.parseErrorElem); } catch (e) { console.error(retry.parseErrorElem); }
+        return null;
+    } catch (e) {
+        console.error("parseBibleXMLString unexpected error:", e);
+        return null;
+    }
+}
+
+function assignParsedToLang(parsedObj, lang) {
+    if (!parsedObj) return;
+    if (lang === 'EN') {
+        englishXML = {
+            data: parsedObj.bibleDataLocal,
+            bookNames: parsedObj.bookNamesSet,
+            englishToKeyMap: parsedObj.englishToKeyMap || null
+        };
+    } else if (lang === 'ML') {
+        malayalamXML = {
+            data: parsedObj.bibleDataLocal,
+            bookNames: parsedObj.bookNamesSet,
+            englishToKeyMap: parsedObj.englishToKeyMap || null
+        };
+    }
+}
+
+async function fetchAndParse(path) {
+    try {
+        const candidates = Array.isArray(path) ? path : [path];
+        for (const p of candidates) {
+            try {
+                const resp = await fetch(p, { cache: 'no-store' });
+                if (!resp.ok) {
+                    console.warn('Fetch returned non-ok for', p, resp.status);
+                    continue;
+                }
+                const txt = await resp.text();
+                const parsed = parseBibleXMLString(txt);
+                if (!parsed) {
+                    console.warn('Failed to parse XML from', p);
+                    try { console.log('Snippet (first 1000 chars):', txt.slice(0, 1000).replace(/\r/g, '\\r').replace(/\n/g, '\\n')); } catch (e) { }
+                    continue;
+                }
+                return parsed;
+            } catch (err) {
+                console.warn('fetchAndParse error for', p, err && err.message ? err.message : err);
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error("fetchAndParse unexpected error:", e);
+        return null;
+    }
+}
+
+/* ========= Helpers ========= */
+function isTypingInInput() {
+    const active = document.activeElement;
+    if (!active) return false;
+    const tag = active.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable;
+}
+
+/* Resolve spoken (English canonical) book name to the current XML's key */
+function resolveBookName(spokenBook) {
+    if (!bibleData) return spokenBook;
+    if (bibleData[spokenBook]) return spokenBook;
+    const lower = spokenBook.toLowerCase();
+    for (const k of Object.keys(bibleData)) if (k.toLowerCase() === lower) return k;
+    if (bibleEnglishToKeyMap) {
+        const mapped = bibleEnglishToKeyMap[lower];
+        if (mapped && bibleData[mapped]) return mapped;
+    }
+    const stripped = lower.replace(/[\s\.]/g, '');
+    for (const k of Object.keys(bibleData)) if (k.toLowerCase().replace(/[\s\.]/g, '') === stripped) return k;
+    for (const k of Object.keys(bibleData)) if (k.toLowerCase().startsWith(lower)) return k;
+    return spokenBook;
+}
+
+/* ========= Display verse (uses bibleData if available, otherwise remote API) ========= */
+async function showVerse(parsed) {
+    try {
+        if (!parsed) { log("No reference to show."); return; }
+        const resolvedBook = bibleData ? resolveBookName(parsed.book) : parsed.book;
+        if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
+            const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
+            verseRefEl.innerText = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`;
+            verseBodyEl.innerText = text;
+            verseBodyEl.style.fontSize = baseFontSize + 'px';
+            currentRef = parsed;
+            log(resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
+            return;
+        }
+        if (bibleData) {
+            if (bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)]) {
+                log(`Verse ${parsed.verse} not found in ${resolvedBook} ${parsed.chapter}.`);
+            } else {
+                log(`Chapter ${parsed.chapter} not found in ${resolvedBook}.`);
+            }
+        }
+        const ref = `${parsed.book} ${parsed.chapter}:${parsed.verse}`;
+        log('Trying remote API for: ' + ref);
+        const resp = await fetch(`https://bible-api.com/${encodeURIComponent(ref)}`);
+        if (!resp.ok) throw new Error('Remote API status ' + resp.status);
+        const data = await resp.json();
+        verseRefEl.innerText = data.reference + (data.translation_id ? ` — ${data.translation_id}` : '');
+        verseBodyEl.innerText = data.text.trim();
+        verseBodyEl.style.fontSize = baseFontSize + 'px';
+        currentRef = parsed;
+        log('Loaded from remote API.');
+    } catch (e) { log('Error: ' + (e && e.message ? e.message : e)); }
+}
+
+/* ========= Navigation and A+/A- handlers (updated to preserve user choice) ========= */
+prevBtn.addEventListener('click', () => { if (currentRef && currentRef.verse > 1) showVerse({ ...currentRef, verse: currentRef.verse - 1 }); });
+nextBtn.addEventListener('click', () => { if (currentRef) showVerse({ ...currentRef, verse: currentRef.verse + 1 }); });
+
+bigPlus.addEventListener('click', () => { userAdjustedFont = true; baseFontSize = Math.min(160, baseFontSize + Math.max(6, Math.round(baseFontSize * 0.12))); verseBodyEl.style.fontSize = baseFontSize + 'px'; });
+bigMinus.addEventListener('click', () => { userAdjustedFont = true; baseFontSize = Math.max(12, baseFontSize - Math.max(4, Math.round(baseFontSize * 0.12))); verseBodyEl.style.fontSize = baseFontSize + 'px'; });
+
+/* Theme toggle */
+themeBtn.addEventListener('click', () => { const body = document.body; body.dataset.theme = (body.dataset.theme === "dark" ? "light" : "dark"); });
+
+/* Fullscreen helpers */
+function isDocumentInFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement); }
+async function requestFullscreen(element) { if (element.requestFullscreen) return element.requestFullscreen(); if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen(); if (element.msRequestFullscreen) return element.msRequestFullscreen(); return Promise.reject(new Error('Fullscreen API not supported')); }
+async function exitFullscreen() { if (document.exitFullscreen) return document.exitFullscreen(); if (document.webkitExitFullscreen) return document.webkitExitFullscreen(); if (document.msExitFullscreen) return document.msExitFullscreen(); return Promise.reject(new Error('Exit Fullscreen API not supported')); }
+function updateMaxButtonUI(isFull) { verseMaxBtn.setAttribute('aria-pressed', String(!!isFull)); verseMaxBtn.title = isFull ? 'Exit fullscreen (Esc or F)' : 'Maximize (F)'; verseMaxBtn.innerText = isFull ? '⤡' : '⤢'; if (isFull) verseStage.classList.add('fullscreen'); else verseStage.classList.remove('fullscreen'); }
+
+async function toggleFullscreen() {
+    try {
+        const inFs = isDocumentInFullscreen();
+        if (!inFs) { await requestFullscreen(verseStage); updateMaxButtonUI(true); }
+        else { await exitFullscreen(); updateMaxButtonUI(false); }
+    } catch (err) {
+        console.warn('Fullscreen toggle failed', err);
+        log('Fullscreen not available: ' + (err && err.message ? err.message : err));
+    }
+}
+verseMaxBtn.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFullscreen(); });
+document.addEventListener('fullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+document.addEventListener('webkitfullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+document.addEventListener('msfullscreenchange', () => { updateMaxButtonUI(isDocumentInFullscreen()); refreshFontSizeFromCssIfAllowed(); });
+
+document.addEventListener('keydown', (ev) => {
+    if (isTypingInInput()) return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement.isContentEditable) return;
+    if (ev.key && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleFullscreen(); }
+});
+
+/* ========= SEARCH FEATURE ========= */
+const searchInput = document.getElementById('searchInput');
+const searchSuggestions = document.getElementById('searchSuggestions');
+let searchIndex = [];
+
+// Build searchable index from loaded XML
+function buildSearchIndex() {
+    searchIndex = [];
+    if (!bibleData) return;
+    for (const book of Object.keys(bibleData)) {
+        for (const ch of Object.keys(bibleData[book])) {
+            for (const v of Object.keys(bibleData[book][ch])) {
+                const text = bibleData[book][ch][v];
+                if (text) {
+                    searchIndex.push({
+                        book, chapter: ch, verse: v,
+                        text, combinedLower: (book + " " + ch + ":" + v + " " + text).toLowerCase()
+                    });
+                }
+            }
+        }
+    }
+    console.log("🔎 Search index built, verses:", searchIndex.length);
+}
+
+// Run search and update suggestions
+function updateSuggestions(query) {
+    if (!query) { searchSuggestions.style.display = "none"; return; }
+    const q = query.toLowerCase();
+    const parsed = parseReference(query);
+    let results = [];
+
+    // Direct reference match
+    if (parsed) {
+        results.push({
+            ref: `${parsed.book} ${parsed.chapter}:${parsed.verse}`,
+            preview: "(reference match)",
+            parsed
+        });
+    }
+
+    // 🔹 Book name suggestions
+    if (bibleBookNames && bibleBookNames.size) {
+        for (const book of bibleBookNames) {
+            if (book.toLowerCase().startsWith(q)) {
+                results.push({
+                    ref: book,
+                    preview: "(book name)",
+                    parsed: { book, chapter: 1, verse: 1 }
+                });
+            }
+        }
+    }
+
+    // Verse text suggestions (limit after book name hits)
+    for (const entry of searchIndex) {
+        if (entry.combinedLower.includes(q)) {
+            results.push({
+                ref: `${entry.book} ${entry.chapter}:${entry.verse}`,
+                preview: entry.text.slice(0, 100) + (entry.text.length > 100 ? "…" : ""),
+                parsed: { book: entry.book, chapter: +entry.chapter, verse: +entry.verse }
+            });
+            if (results.length > 15) break;
+        }
+    }
+
+    if (results.length === 0) { searchSuggestions.style.display = "none"; return; }
+    searchSuggestions.innerHTML = results.map(r =>
+        `<div class="suggestion" data-book="${r.parsed.book}" data-chapter="${r.parsed.chapter}" data-verse="${r.parsed.verse}">
+       <strong>${r.ref}</strong><small>${r.preview}</small>
+     </div>`).join("");
+    searchSuggestions.style.display = "block";
+
+    searchSuggestions.querySelectorAll('.suggestion').forEach(el => {
+        el.addEventListener('click', () => {
+            const b = el.dataset.book, c = +el.dataset.chapter, v = +el.dataset.verse;
+            showVerse({ book: b, chapter: c, verse: v });
+            searchSuggestions.style.display = "none";
+            searchInput.value = "";
+        });
+    });
+}
+
+searchInput.addEventListener('input', e => updateSuggestions(e.target.value.trim()));
+
+searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = searchSuggestions.querySelector('.suggestion');
+        if (first) first.click();
+    } else if (e.key === 'Escape') {
+        searchSuggestions.style.display = "none";
+    }
+});
+
+function refreshSearchIndex() { buildSearchIndex(); }
+
+/* ========= Recording visual state ========= */
+function setRecordingState(isRecording) {
+    if (!startStopBtn) return;
+
+    if (isRecording) {
+        startStopBtn.classList.add('recording');
+        startStopBtn.setAttribute('aria-pressed', 'true');
+        startStopBtn.textContent = 'Stop';
+        startStopBtn.title = 'Recording — click to stop';
+
+        if (verseRecBtn) {
+            verseRecBtn.classList.add('rec');
+            verseRecBtn.setAttribute('aria-hidden', 'false');
+            verseRecBtn.removeAttribute('hidden');
+            verseRecBtn.style.display = 'inline-flex';
+            verseRecBtn.title = 'Recording';
+        }
+    } else {
+        startStopBtn.classList.remove('recording');
+        startStopBtn.setAttribute('aria-pressed', 'false');
+        startStopBtn.textContent = 'Start';
+        startStopBtn.title = 'Not recording — click to start';
+
+        if (verseRecBtn) {
+            verseRecBtn.classList.remove('rec');
+            verseRecBtn.setAttribute('aria-hidden', 'true');
+            verseRecBtn.setAttribute('hidden', '');
+            verseRecBtn.style.display = 'none';
+            verseRecBtn.title = '';
+        }
+    }
+}
+
+/* ========= SpeechRecognition wiring (same behavior, but UI via setRecordingState) ========= */
+if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    log('SpeechRecognition not available.');
+    if (startStopBtn) startStopBtn.disabled = true;
+} else {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recog = new SpeechRecognition();
+    recog.lang = 'en-US';
+    recog.interimResults = true;
+    recog.continuous = true;
+    recog.maxAlternatives = 1;
+    let listening = false;
+
+    startStopBtn.addEventListener('click', () => {
+        try {
+            if (!listening) {
+                recog.start();
+                listening = true;
+                log('Listening…');
+                setRecordingState(true);
+            } else {
+                recog.stop();
+            }
+        } catch (err) { console.error(err); }
+    });
+
+    recog.onresult = async (ev) => {
+        let interim = '', final = '';
+        for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+            const r = ev.results[i];
+            if (r.isFinal) final += r[0].transcript + ' ';
+            else interim += r[0].transcript + ' ';
+        }
+        transcriptEl.innerText = (interim ? ('Interim: ' + interim + '\n') : '') + (final ? ('Final: ' + final) : '');
+        const stable = final.trim();
+        if (stable) {
+            const parsed = parseReference(stable);
+            if (parsed) { await showVerse(parsed); }
+            else { log('Input to Parse:' + stable + ':Could not parse reference from final transcript.'); }
+        }
+    };
+
+    recog.onend = () => {
+        listening = false;
+        setRecordingState(false);
+        log('Recognition ended.');
+    };
+    recog.onerror = (e) => {
+        listening = false;
+        setRecordingState(false);
+        log('SpeechRecognition error: ' + (e && e.error ? e.error : JSON.stringify(e)));
+        console.warn('SpeechRecognition error', e);
+    };
+}
+
+/* Keyboard nav */
+document.addEventListener('keydown', (ev) => {
+    if (isTypingInInput()) return;
+    if (ev.key === "ArrowLeft" && currentRef && currentRef.verse > 1) showVerse({ ...currentRef, verse: currentRef.verse - 1 });
+    if (ev.key === "ArrowRight" && currentRef) showVerse({ ...currentRef, verse: currentRef.verse + 1 });
+});
+
+(function () {
+    let lastToggle = 0; const DEBOUNCE_MS = 400;
+    function tryToggleFromEvent(ev) {
+        const now = Date.now(); if (now - lastToggle < DEBOUNCE_MS) return; lastToggle = now;
+        const btn = document.getElementById('startStopBtn'); if (!btn || btn.disabled) return; btn.click();
+    }
+    document.addEventListener('keydown', (ev) => {
+        try {
+            if (isTypingInInput()) return;
+            if (ev.key === 'm') { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
+            if (ev.metaKey && (ev.code === 'Space' || ev.key.toLowerCase() === 'm')) { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
+            if (ev.ctrlKey && ev.altKey && ev.key.toLowerCase() === 'm') { ev.preventDefault?.(); tryToggleFromEvent(ev); return; }
+        } catch (err) { console.warn('Meta key toggle error', err); }
+    }, { passive: false });
+})();
+
+/* Toggle language on "E" keypress (ignore when typing in inputs/textareas/contenteditable) */
+document.addEventListener('keydown', (ev) => {
+    if (isTypingInInput()) return;
+    const active = document.activeElement;
+    const tag = active && active.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
+    try {
+        if (ev.key && ev.key.toLowerCase() === 'e') {
+            ev.preventDefault();
+            if (langBtn) langBtn.click();
+        }
+    } catch (err) {
+        console.warn('Language toggle key handler error', err);
+    }
+});
+
+/* ========= File input handler ========= */
+xmlFileInput.addEventListener('change', async (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) { log('No file selected'); return; }
+    log('Reading file: ' + f.name);
+    try {
+        const txt = await f.text();
+        const parsed = parseBibleXMLString(txt);
+        if (!parsed) { log('Failed to parse selected XML file.'); return; }
+        const lower = (f.name || '').toLowerCase();
+        const lang = (lower.includes('malay') || lower.includes('ml')) ? 'ML' : 'EN';
+        assignParsedToLang(parsed, lang);
+        log('Local XML loaded from file: ' + f.name + ' — Books: ' + Object.keys((lang === 'EN' ? englishXML.data : malayalamXML.data)).length);
+        if (lang === currentLanguage) {
+            bibleData = (lang === 'EN') ? englishXML.data : malayalamXML.data;
+            bibleBookNames = (lang === 'EN') ? englishXML.bookNames : malayalamXML.bookNames;
+
+            bibleEnglishToKeyMap = (lang === 'EN') ? englishXML.englishToKeyMap : malayalamXML.englishToKeyMap;
+            refreshSearchIndex();
+            if (currentRef) showVerse(currentRef);
+        }
+    } catch (e) {
+        console.error(e); log('Error reading file: ' + (e && e.message ? e.message : e));
+    } finally {
+        xmlFileInput.value = '';
+    }
+});
+
+/* ========= Preload English & Malayalam XMLs ========= */
+async function preloadBothXml() {
+    log('Preloading English and Malayalam XMLs (if available)...');
+    const [enParsed, mlParsed] = await Promise.all([
+        fetchAndParse('English_Catholic_XML.xml'),
+        fetchAndParse('malayalam_bible.xml')
+    ]);
+    if (enParsed) {
+        assignParsedToLang(enParsed, 'EN');
+        console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length);
+    }
+    else
+        console.log('⚠️ English XML not available on server.');
+    if (mlParsed) {
+        assignParsedToLang(mlParsed, 'ML');
+        console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length);
+    }
+    else
+        console.log('⚠️ Malayalam XML not available on server.');
+
+    if (englishXML && englishXML.data) {
+        currentLanguage = 'EN';
+        bibleData = englishXML.data;
+        bibleBookNames = englishXML.bookNames;
+        bibleEnglishToKeyMap = englishXML.englishToKeyMap;
+        refreshSearchIndex();
+        langBtn && (langBtn.innerText = 'EN / ML');
+        log('Defaulting to English XML.');
+    } else if (malayalamXML && malayalamXML.data) {
+        currentLanguage = 'ML';
+        bibleData = malayalamXML.data;
+        bibleBookNames = malayalamXML.bookNames;
+        bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+        refreshSearchIndex();
+        langBtn && (langBtn.innerText = 'ML / EN');
+        log('Defaulting to Malayalam XML.');
+    } else {
+        log('No local XMLs found. Click "Load local XML" to open a file from disk.');
+    }
+
+    if (currentRef) showVerse(currentRef);
+    else if (currentLanguage === 'EN') showVerse({ book: "Genesis", chapter: 1, verse: 1 });
+    else if (currentLanguage === 'ML') {
+        if (bibleEnglishToKeyMap && bibleEnglishToKeyMap['genesis']) {
+            const xmlKey = bibleEnglishToKeyMap['genesis'];
+            if (bibleData && bibleData[xmlKey] && bibleData[xmlKey]['1'] && bibleData[xmlKey]['1']['1']) {
+                verseRefEl.innerText = `${xmlKey} 1:1`;
+                verseBodyEl.innerText = bibleData[xmlKey]['1']['1'];
+                verseBodyEl.style.fontSize = baseFontSize + 'px';
+            }
+        }
+    }
+}
+
+/* Load local button behaviour */
+loadLocalBtn.addEventListener('click', async () => {
+    if (currentLanguage === 'EN' && englishXML && englishXML.data) { log('English XML already loaded.'); return; }
+    if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) { log('Malayalam XML already loaded.'); return; }
+    promptUserToSelectXmlFile((currentLanguage === 'EN') ? 'English_Catholic_XML.xml' : 'malayalam_bible.xml');
+});
+
+function promptUserToSelectXmlFile(filenameHint) {
+    log('Please select the bible XML file' + (filenameHint ? (' (e.g. ' + filenameHint + ')') : '') + ' from disk.');
+    xmlFileInput.click();
+}
+
+/* Language toggle */
+langBtn.addEventListener('click', async () => {
+    if (currentLanguage === 'EN') document.body.setAttribute("data-language", "ML");
+    else document.body.setAttribute("data-language", "EN");
+
+    if (currentLanguage === 'EN') {
+        if (malayalamXML && malayalamXML.data) {
+            currentLanguage = 'ML';
+            bibleData = malayalamXML.data;
+            bibleBookNames = malayalamXML.bookNames;
+            bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+            refreshSearchIndex();
+            langBtn.innerText = 'ML / EN';
+            log('Language switched to Malayalam (in-memory).');
+            if (currentRef) showVerse(currentRef);
+        } else {
+            log('Malayalam XML not loaded. Please select malayalam_bible.xml.');
+            promptUserToSelectXmlFile('malayalam_bible.xml');
+        }
+    } else {
+        if (englishXML && englishXML.data) {
+            currentLanguage = 'EN';
+            bibleData = englishXML.data;
+            bibleBookNames = englishXML.bookNames;
+            bibleEnglishToKeyMap = englishXML.englishToKeyMap;
+            refreshSearchIndex();
+            langBtn.innerText = 'EN / ML';
+            log('Language switched to English (in-memory).');
+            if (currentRef) showVerse(currentRef);
+        } else {
+            log('English XML not loaded. Please select English_Catholic_XML.xml.');
+            promptUserToSelectXmlFile('English_Catholic_XML.xml');
+        }
+    }
+});
+
+/* ========= Responsive font: update from CSS unless user adjusted ========= */
+function refreshFontSizeFromCssIfAllowed() {
+    if (userAdjustedFont) return;
+    const fs = readComputedVerseFontSize();
+    baseFontSize = fs;
+    verseBodyEl.style.fontSize = baseFontSize + 'px';
+}
+
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => { refreshFontSizeFromCssIfAllowed(); }, 120);
+});
+
+/* Debounced init to let fonts load before measurement */
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        refreshFontSizeFromCssIfAllowed();
+    }, 120);
+});
+
+/* ========= Start preloading on init ========= */
+(async function init() {
+    await preloadBothXml();
+})();
