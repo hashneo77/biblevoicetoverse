@@ -494,78 +494,25 @@ const bibleBooks = Array.from(new Set(Object.values(BOOK_ALIASES).map(String)));
 
 
 /* Parse spoken reference using BOOK_ALIASES */
-function parseReference(text){
-  // console.log("🔹 Input text:", text);
-  const s = normalizeSpoken(text);
-  // console.log("🔹 Normalized text:", s);
-  const tokens = s.split(/\s+/).filter(Boolean);
-  // console.log("🔹 Tokens:", tokens);
-
-  for (let len = Math.min(3, tokens.length); len >= 1; len--) {
-    const candidate = tokens.slice(0, len).join(' ');
-    // console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
-    const book = null;
-    if (BOOK_ALIASES[candidate]) {
-      const book = BOOK_ALIASES[candidate];
-      // console.log("✅ Matched book alias:", candidate, "→", book);
-      let rest = tokens.slice(len).join(' ');
-      // console.log("🔹 Raw remaining text after book:", rest);
-      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
-      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
-      rest = rest.replace(/\s+/g, ' ');
-      // console.log("🔹 Cleaned remaining text:", rest);
-
-      const colon = rest.match(/(\d+):(\d+)/);
-      if (colon) {
-        return { book, chapter: +colon[1], verse: +colon[2] };
-      }
-      if (!rest) return null;
-      const nums = rest.split(/\s+/).filter(Boolean);
-      if (nums.length >= 2) {
-        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
-        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
-          return { book, chapter: c, verse: v };
-        }
-      }
-      if (nums.length === 1) {
-        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
-      }
-      return null;
-    } else {
-      const book = findClosest(candidate, bibleBooks, 1, 0.3)[0];
-      console.log(book);
-      let rest = tokens.slice(len).join(' ');
-      // console.log("🔹 Raw remaining text after book:", rest);
-      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
-      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
-      rest = rest.replace(/\s+/g, ' ');
-      // console.log("🔹 Cleaned remaining text:", rest);
-
-      const colon = rest.match(/(\d+):(\d+)/);
-      if (colon) {
-        return { book, chapter: +colon[1], verse: +colon[2] };
-      }
-      if (!rest) return null;
-      const nums = rest.split(/\s+/).filter(Boolean);
-      if (nums.length >= 2) {
-        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
-        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
-          return { book, chapter: c, verse: v };
-        }
-      }
-      if (nums.length === 1) {
-        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
-        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
-      }
-      return null;
-    }
-    
-  }
-  // console.log("⚠️ No valid reference found.");
-  return null;
+function parseReference(text){ 
+  // console.log("🔹 Input text:", text); 
+  const s = normalizeSpoken(text); 
+  // console.log("🔹 Normalized text:", s); 
+  const tokens = s.split(/\s+/).filter(Boolean); 
+  // console.log("🔹 Tokens:", tokens); 
+  for (let len = Math.min(3, tokens.length); len >= 1; len--) 
+  { const candidate = tokens.slice(0, len).join(' '); 
+  // console.log(➡️ Trying candidate book name [len=${len}]:, candidate); 
+  if (BOOK_ALIASES[candidate]) { const book = BOOK_ALIASES[candidate]; 
+  // console.log("✅ Matched book alias:", candidate, "→", book); 
+  let rest = tokens.slice(len).join(' '); 
+  // console.log("🔹 Raw remaining text after book:", rest); 
+  const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi; rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim(); rest = rest.replace(/\s+/g, ' '); 
+  // console.log("🔹 Cleaned remaining text:", rest); 
+  const colon = rest.match(/(\d+):(\d+)/); if (colon) { return { book, chapter: +colon[1], verse: +colon[2] }; } if (!rest) return null; const nums = rest.split(/\s+/).filter(Boolean); if (nums.length >= 2) { const c = (Number(nums[0]) || wordsToNumber(nums[0])); const v = (Number(nums[1]) || wordsToNumber(nums[1])); if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) { return { book, chapter: c, verse: v }; } } if (nums.length === 1) { const c = (Number(nums[0]) || wordsToNumber(nums[0])); if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 }; } return null; } 
+  else { 
+  // console.log("❌ No match for book alias:", candidate); } } 
+  console.log("⚠️ No valid reference found."); return null; 
 }
 
 /* ========= DOM refs ========= */
