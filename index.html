@@ -76,6 +76,8 @@
 
     .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 
+    
+
     .btn {
       border:1px solid transparent;
       padding:10px 16px;
@@ -196,6 +198,34 @@
       transition: background .15s, box-shadow .15s, transform .15s;
       pointer-events: none;
     }
+
+    /* SEARCH UI */
+    .search-wrap { position: relative; display:flex; align-items:center; }
+    #searchInput {
+      min-width:220px; padding:8px 10px;
+      border-radius:10px; border:1px solid rgba(0,0,0,0.08);
+      background:transparent;
+    }
+    .suggestions {
+      position:absolute; top:42px; left:0; right:0; z-index:200;
+      background:var(--bg-light);
+      border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.12);
+      max-height:320px; overflow:auto;
+      border:1px solid rgba(0,0,0,0.08);
+    }
+    body[data-theme="dark"] .suggestions {
+      background:#081126; color:var(--text-dark);
+      border-color:rgba(255,255,255,0.04);
+      box-shadow:0 10px 30px rgba(0,0,0,0.6);
+    }
+    .suggestion { padding:10px 12px; cursor:pointer; border-bottom:1px solid rgba(0,0,0,0.04); }
+    .suggestion:last-child{ border-bottom:none; }
+    .suggestion small { display:block; opacity:0.8; font-size:12px; }
+    .suggestion:hover { background: rgba(0,0,0,0.04); }
+    body[data-theme="dark"] .suggestion:hover { background: rgba(255,255,255,0.03); }
+
+
+
     .mic-icon::after {
       content: '🎤';
       position: absolute;
@@ -315,6 +345,19 @@
         <button id="bigPlus" class="btn" title="Increase font">A+</button>
         <button id="themeBtn" class="btn" title="Toggle theme">🌞/🌙</button>
         <button id="loadLocalBtn" class="btn secondary" title="Load local XML">XML</button>
+        <!-- SEARCH: input + suggestions -->
+        <div class="search-wrap" style="margin-left:6px;">
+          <input id="searchInput"
+                placeholder="Search verses or type a reference (e.g. John 3:16)"
+                aria-label="Search verses"
+                autocomplete="off" />
+          <div id="searchSuggestions"
+              class="suggestions"
+              style="display:none;"
+              role="listbox"
+              aria-label="Search suggestions"></div>
+        </div>
+
       </div>
     </div>
 
@@ -718,6 +761,97 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key && ev.key.toLowerCase() === 'f') { ev.preventDefault(); toggleFullscreen(); }
 });
 
+
+/* ========= SEARCH FEATURE ========= */
+const searchInput = document.getElementById('searchInput');
+const searchSuggestions = document.getElementById('searchSuggestions');
+let searchIndex = [];
+
+// Build searchable index from loaded XML
+function buildSearchIndex() {
+  searchIndex = [];
+  if (!bibleData) return;
+  for (const book of Object.keys(bibleData)) {
+    for (const ch of Object.keys(bibleData[book])) {
+      for (const v of Object.keys(bibleData[book][ch])) {
+        const text = bibleData[book][ch][v];
+        if (text) {
+          searchIndex.push({
+            book, chapter: ch, verse: v,
+            text, combinedLower: (book + " " + ch + ":" + v + " " + text).toLowerCase()
+          });
+        }
+      }
+    }
+  }
+  console.log("🔎 Search index built, verses:", searchIndex.length);
+}
+
+// Run search and update suggestions
+function updateSuggestions(query) {
+  if (!query) { searchSuggestions.style.display = "none"; return; }
+  const q = query.toLowerCase();
+  const parsed = parseReference(query);
+  let results = [];
+
+  // Direct reference match
+  if (parsed) {
+    results.push({
+      ref: `${parsed.book} ${parsed.chapter}:${parsed.verse}`,
+      preview: "(reference match)",
+      parsed
+    });
+  }
+
+  // Verse text contains query
+  for (const entry of searchIndex) {
+    if (entry.combinedLower.includes(q)) {
+      results.push({
+        ref: `${entry.book} ${entry.chapter}:${entry.verse}`,
+        preview: entry.text.slice(0,100) + (entry.text.length>100 ? "…" : ""),
+        parsed: { book: entry.book, chapter: +entry.chapter, verse: +entry.verse }
+      });
+      if (results.length > 10) break;
+    }
+  }
+
+  // Show results
+  if (results.length === 0) { searchSuggestions.style.display="none"; return; }
+  searchSuggestions.innerHTML = results.map(r =>
+    `<div class="suggestion" data-book="${r.parsed.book}" data-chapter="${r.parsed.chapter}" data-verse="${r.parsed.verse}">
+       <strong>${r.ref}</strong><small>${r.preview}</small>
+     </div>`).join("");
+  searchSuggestions.style.display="block";
+
+  // Click handler
+  searchSuggestions.querySelectorAll('.suggestion').forEach(el => {
+    el.addEventListener('click', () => {
+      const b = el.dataset.book, c = +el.dataset.chapter, v = +el.dataset.verse;
+      showVerse({ book: b, chapter: c, verse: v });
+      searchSuggestions.style.display = "none";
+      searchInput.value = "";
+    });
+  });
+}
+
+// Input event
+searchInput.addEventListener('input', e => updateSuggestions(e.target.value.trim()));
+
+// Enter key: open top suggestion
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = searchSuggestions.querySelector('.suggestion');
+    if (first) first.click();
+  } else if (e.key === 'Escape') {
+    searchSuggestions.style.display = "none";
+  }
+});
+
+// Rebuild search index when Bible XML is loaded or language switched
+function refreshSearchIndex() { buildSearchIndex(); }
+
+
 /* ========= Recording visual state ========= */
 function setRecordingState(isRecording) {
   if (!startStopBtn) return;
@@ -857,6 +991,7 @@ xmlFileInput.addEventListener('change', async (ev) => {
       bibleData = (lang === 'EN') ? englishXML.data : malayalamXML.data;
       bibleBookNames = (lang === 'EN') ? englishXML.bookNames : malayalamXML.bookNames;
       bibleEnglishToKeyMap = (lang === 'EN') ? englishXML.englishToKeyMap : malayalamXML.englishToKeyMap;
+      refreshSearchIndex();
       if (currentRef) showVerse(currentRef);
     }
   } catch (e) {
@@ -891,6 +1026,7 @@ async function preloadBothXml() {
     bibleData = englishXML.data;
     bibleBookNames = englishXML.bookNames;
     bibleEnglishToKeyMap = englishXML.englishToKeyMap;
+    refreshSearchIndex();
     langBtn && (langBtn.innerText = 'EN / ML');
     log('Defaulting to English XML.');
   } else if (malayalamXML && malayalamXML.data) {
@@ -898,6 +1034,7 @@ async function preloadBothXml() {
     bibleData = malayalamXML.data;
     bibleBookNames = malayalamXML.bookNames;
     bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+    refreshSearchIndex();
     langBtn && (langBtn.innerText = 'ML / EN');
     log('Defaulting to Malayalam XML.');
   } else {
@@ -941,6 +1078,7 @@ langBtn.addEventListener('click', async () => {
       bibleData = malayalamXML.data;
       bibleBookNames = malayalamXML.bookNames;
       bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+      refreshSearchIndex();
       langBtn.innerText = 'ML / EN';
       log('Language switched to Malayalam (in-memory).');
       if (currentRef) showVerse(currentRef);
@@ -954,6 +1092,7 @@ langBtn.addEventListener('click', async () => {
       bibleData = englishXML.data;
       bibleBookNames = englishXML.bookNames;
       bibleEnglishToKeyMap = englishXML.englishToKeyMap;
+      refreshSearchIndex();
       langBtn.innerText = 'EN / ML';
       log('Language switched to English (in-memory).');
       if (currentRef) showVerse(currentRef);
