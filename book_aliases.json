@@ -1,6 +1,7 @@
 {
   "genesis": "Genesis",
   "exodus": "Exodus",
+  "ester": "Esther",
   "leviticus": "Leviticus",
   "limiticus": "Leviticus",
   "numbers": "Numbers",
@@ -132,6 +133,7 @@
   "revelations": "Revelation",
   "apocalypse": "Revelation",
   "tobit": "Tobit",
+  "tobeth": "Tobit",
   "tobias": "Tobit",
   "judith": "Judith",
   "wisdom": "Wisdom",
@@ -177,16 +179,5 @@
   "farooq": "Baruch",
   "chirag": "Sirach",
   "lamentation": "Lamentations",
-  "Chirag": "Sirach",
-  "additions to esther": "Esther (Additions)",
-  "esther additions": "Esther (Additions)",
-  "rest of esther": "Esther (Additions)",
-  "susanna": "Daniel (Susanna)",
-  "susannah": "Daniel (Susanna)",
-  "bel and the dragon": "Daniel (Bel and the Dragon)",
-  "bel and dragon": "Daniel (Bel and the Dragon)",
-  "prayer of azariah": "Daniel (Prayer of Azariah)",
-  "song of the three children": "Daniel (Song of the Three Holy Children)",
-  "song of the three young men": "Daniel (Song of the Three Holy Children)",
-  "song of the three": "Daniel (Song of the Three Holy Children)"
+  "Chirag": "Sirach"
 }
