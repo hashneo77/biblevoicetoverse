@@ -386,133 +386,51 @@ function doubleMetaphone(value) {
   return [primary, secondary];
 }
 
-// Utility: normalize text (lowercase, remove diacritics, optionally keep letters only)
-function normalize(s) {
-  return s
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "") // remove accents
-    .replace(/[^a-z]/g, ""); // keep letters only
-}
-
-// Longest Common Subsequence (LCS) length - O(m*n)
-function lcsLength(a, b) {
-  const m = a.length, n = b.length;
-  if (m === 0 || n === 0) return 0;
-  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-      else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-    }
-  }
-  return dp[m][n];
-}
-
-// Levenshtein distance - O(m*n)
-function levenshtein(a, b) {
-  const m = a.length, n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  let prev = new Uint16Array(n + 1);
-  let cur = new Uint16Array(n + 1);
-  for (let j = 0; j <= n; j++) prev[j] = j;
-  for (let i = 1; i <= m; i++) {
-    cur[0] = i;
-    for (let j = 1; j <= n; j++) {
-      const cost = (a[i - 1] === b[j - 1]) ? 0 : 1;
-      cur[j] = Math.min(
-        prev[j] + 1,       // deletion
-        cur[j - 1] + 1,    // insertion
-        prev[j - 1] + cost // substitution
-      );
-    }
-    [prev, cur] = [cur, prev];
-  }
-  return prev[n];
-}
-
-// Longest common substring length (contiguous) - optional but sometimes helpful
-function longestCommonSubstring(a, b) {
-  const m = a.length, n = b.length;
-  if (m === 0 || n === 0) return 0;
-  let maxLen = 0;
-  const dpRow = new Uint16Array(n + 1);
-  for (let i = 1; i <= m; i++) {
-    for (let j = n; j >= 1; j--) { // iterate backwards to reuse single array
-      if (a[i - 1] === b[j - 1]) {
-        dpRow[j] = dpRow[j - 1] + 1;
-        if (dpRow[j] > maxLen) maxLen = dpRow[j];
-      } else dpRow[j] = 0;
-    }
-  }
-  return maxLen;
-}
-
-// Combined scoring function
-function scoreCandidate(inputRaw, candidateRaw) {
-  const input = normalize(inputRaw);
-  const cand  = normalize(candidateRaw);
-  if (input.length === 0 || cand.length === 0) return 0;
-
-  const lcs = lcsLength(input, cand);
-  const lev = levenshtein(input, cand);
-  const lcsSub = longestCommonSubstring(input, cand);
-
-  // Normalize components:
-  // lcsNormalized: fraction of input's characters found in order in candidate (0..1)
-  const lcsNormalized = lcs / Math.max(input.length, cand.length);
-
-  // editNormalized: convert distance to similarity (0..1)
-  const maxLen = Math.max(input.length, cand.length);
-  const editNormalized = 1 - (lev / (maxLen + 1)); // +1 to avoid div-by-zero
-
-  // substringNormalized: reward contiguous match portion relative to input length
-  const subNormalized = lcsSub / input.length;
-
-  // If candidate starts with same first letter or prefix, slight bonus
-  const prefixBonus = cand.startsWith(input[0]) ? 0.03 : 0;
-
-  // Weighted combination — tune weights as you like
-  const score = (0.5 * lcsNormalized) + (0.35 * editNormalized) + (0.1 * subNormalized) + prefixBonus;
-
-  // clamp to 0..1
-  return Math.max(0, Math.min(1, score));
-}
-
-// Function to find top N matches from pool
-function findClosest(input, pool, topN = 5, minScore = 0.25) {
-  const scored = pool.map(name => ({ name, score: scoreCandidate(input, name) }))
-                     .filter(x => x.score >= minScore)
-                     .sort((a, b) => b.score - a.score)
-                     .slice(0, topN);
-  return scored;
-}
-
-
-const bibleBooks = Array.from(new Set(Object.values(BOOK_ALIASES).map(String)));
-
-
 /* Parse spoken reference using BOOK_ALIASES */
-function parseReference(text){ 
-  // console.log("🔹 Input text:", text); 
-  const s = normalizeSpoken(text); 
-  // console.log("🔹 Normalized text:", s); 
-  const tokens = s.split(/\s+/).filter(Boolean); 
-  // console.log("🔹 Tokens:", tokens); 
-  for (let len = Math.min(3, tokens.length); len >= 1; len--) 
-  { const candidate = tokens.slice(0, len).join(' '); 
-  // console.log(➡️ Trying candidate book name [len=${len}]:, candidate); 
-  if (BOOK_ALIASES[candidate]) { const book = BOOK_ALIASES[candidate]; 
-  // console.log("✅ Matched book alias:", candidate, "→", book); 
-  let rest = tokens.slice(len).join(' '); 
-  // console.log("🔹 Raw remaining text after book:", rest); 
-  const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi; rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim(); rest = rest.replace(/\s+/g, ' '); 
-  // console.log("🔹 Cleaned remaining text:", rest); 
-  const colon = rest.match(/(\d+):(\d+)/); if (colon) { return { book, chapter: +colon[1], verse: +colon[2] }; } if (!rest) return null; const nums = rest.split(/\s+/).filter(Boolean); if (nums.length >= 2) { const c = (Number(nums[0]) || wordsToNumber(nums[0])); const v = (Number(nums[1]) || wordsToNumber(nums[1])); if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) { return { book, chapter: c, verse: v }; } } if (nums.length === 1) { const c = (Number(nums[0]) || wordsToNumber(nums[0])); if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 }; } return null; } 
-  else { 
-  // console.log("❌ No match for book alias:", candidate); } } 
-  console.log("⚠️ No valid reference found."); return null; 
+function parseReference(text){
+  // console.log("🔹 Input text:", text);
+  const s = normalizeSpoken(text);
+  // console.log("🔹 Normalized text:", s);
+  const tokens = s.split(/\s+/).filter(Boolean);
+  // console.log("🔹 Tokens:", tokens);
+
+  for (let len = Math.min(3, tokens.length); len >= 1; len--) {
+    const candidate = tokens.slice(0, len).join(' ');
+    // console.log(`➡️ Trying candidate book name [len=${len}]:`, candidate);
+    if (BOOK_ALIASES[candidate]) {
+      const book = BOOK_ALIASES[candidate];
+      // console.log("✅ Matched book alias:", candidate, "→", book);
+      let rest = tokens.slice(len).join(' ');
+      // console.log("🔹 Raw remaining text after book:", rest);
+      const fillerPattern = /\b(chapter|chap|verse|v|was|that|the|number|num|of|and|please|read)\b/gi;
+      rest = rest.replace(fillerPattern, ' ').replace(/[.,;!?]/g, ' ').trim();
+      rest = rest.replace(/\s+/g, ' ');
+      // console.log("🔹 Cleaned remaining text:", rest);
+
+      const colon = rest.match(/(\d+):(\d+)/);
+      if (colon) {
+        return { book, chapter: +colon[1], verse: +colon[2] };
+      }
+      if (!rest) return null;
+      const nums = rest.split(/\s+/).filter(Boolean);
+      if (nums.length >= 2) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        const v = (Number(nums[1]) || wordsToNumber(nums[1]));
+        if (Number.isFinite(c) && Number.isFinite(v) && c > 0 && v > 0) {
+          return { book, chapter: c, verse: v };
+        }
+      }
+      if (nums.length === 1) {
+        const c = (Number(nums[0]) || wordsToNumber(nums[0]));
+        if (Number.isFinite(c) && c > 0) return { book, chapter: c, verse: 1 };
+      }
+      return null;
+    } else {
+      // console.log("❌ No match for book alias:", candidate);
+    }
+  }
+  // console.log("⚠️ No valid reference found.");
+  return null;
 }
 
 /* ========= DOM refs ========= */
