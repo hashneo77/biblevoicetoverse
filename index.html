@@ -245,6 +245,12 @@
     }
     .verse-max-btn:focus { outline: 3px solid rgba(0,0,0,0.08); }
 
+    .btn.recording {
+    background-color: red;
+    color: white;
+  }
+
+
     /* Recording indicator button */
     .verse-rec-btn {
       position: absolute;
@@ -292,8 +298,7 @@
 
       <div class="controls" role="toolbar" aria-label="Controls">
         <button id="startStopBtn" class="btn" aria-pressed="false">Start</button>
-        <span id="micIcon" class="mic-icon" role="img" aria-hidden="true" title="Microphone status"></span>
-
+        <!-- <span id="micIcon" class="mic-icon" role="img" aria-hidden="true" title="Microphone status"></span> -->
         <button id="prevBtn" class="btn secondary icon" title="Previous verse">◀</button>
         <button id="nextBtn" class="btn secondary icon" title="Next verse">▶</button>
         <button id="langBtn" class="btn secondary" title="Toggle language">EN / ML</button>
@@ -540,7 +545,7 @@ function parseReference(text){
 
 /* ========= DOM refs ========= */
 const startStopBtn=document.getElementById('startStopBtn');
-const micIcon=document.getElementById('micIcon');
+//const micIcon=document.getElementById('micIcon');
 const prevBtn=document.getElementById('prevBtn');
 const nextBtn=document.getElementById('nextBtn');
 const transcriptEl=document.getElementById('transcript');
@@ -827,32 +832,22 @@ document.addEventListener('keydown', (ev) => {
 });
 
 /* ========= Recording visual state ========= */
-function setRecordingState(isRecording){
-  if(!micIcon) return;
-  if(isRecording){
-    micIcon.classList.add('recording');
-    micIcon.setAttribute('aria-hidden','false');
-    micIcon.setAttribute('title','Recording — click Stop to end');
-    if (verseRecBtn) {
-      verseRecBtn.classList.add('rec');
-      verseRecBtn.setAttribute('aria-hidden','false');
-      verseRecBtn.removeAttribute('hidden');
-      verseRecBtn.style.display = 'inline-flex';
-      verseRecBtn.title = 'Recording';
-    }
+function setRecordingState(isRecording) {
+  if (!startStopBtn) return;
+
+  if (isRecording) {
+    startStopBtn.classList.add('recording');
+    startStopBtn.setAttribute('aria-pressed', 'true');
+    startStopBtn.textContent = 'Stop';
+    startStopBtn.title = 'Recording — click to stop';
   } else {
-    micIcon.classList.remove('recording');
-    micIcon.setAttribute('aria-hidden','true');
-    micIcon.setAttribute('title','Not recording');
-    if (verseRecBtn) {
-      verseRecBtn.classList.remove('rec');
-      verseRecBtn.setAttribute('aria-hidden','true');
-      verseRecBtn.setAttribute('hidden','');
-      verseRecBtn.style.display = 'none';
-      verseRecBtn.title = '';
-    }
+    startStopBtn.classList.remove('recording');
+    startStopBtn.setAttribute('aria-pressed', 'false');
+    startStopBtn.textContent = 'Start';
+    startStopBtn.title = 'Not recording — click to start';
   }
 }
+
 
 /* ========= SpeechRecognition wiring (same behavior) ========= */
 if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
