@@ -875,16 +875,16 @@ async function preloadBothXml() {
   ]);
   if (enParsed) { 
     assignParsedToLang(enParsed, 'EN'); 
-    // console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length); 
+    console.log('✅ English XML parsed — books:', Object.keys(englishXML.data).length); 
   } 
     else 
-    // console.log('⚠️ English XML not available on server.');
+    console.log('⚠️ English XML not available on server.');
     if (mlParsed) { 
       assignParsedToLang(mlParsed, 'ML'); 
-    // console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length); 
+    console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length); 
   } 
   else 
-  // console.log('⚠️ Malayalam XML not available on server.');
+  console.log('⚠️ Malayalam XML not available on server.');
 
   if (englishXML && englishXML.data) {
     currentLanguage = 'EN';
