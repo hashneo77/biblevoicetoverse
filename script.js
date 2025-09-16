@@ -498,7 +498,7 @@ if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
 } else {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recog = new SpeechRecognition();
-    recog.lang = 'en-US';
+    recog.lang = 'ml-IN';
     recog.interimResults = true;
     recog.continuous = true;
     recog.maxAlternatives = 1;
