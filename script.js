@@ -561,6 +561,31 @@ function updateSuggestions(query) {
     }
 }
 
+searchInput.addEventListener("keydown", e => {
+    if (e.key === "Tab") {
+        const first = searchSuggestions.querySelector(".suggestion");
+        if (first) {
+            e.preventDefault(); // stop focus change
+
+            const book = first.dataset.book;
+            const chapter = +first.dataset.chapter;
+            const verse = +first.dataset.verse;
+
+            let suggestionText = book;
+            if (chapter) {
+                suggestionText += " " + chapter;
+                if (verse) suggestionText += ":" + verse;
+            }
+
+            // Paste into the input
+            searchInput.value = suggestionText;
+
+            // Trigger a fresh suggestion update
+            updateSuggestions(suggestionText);
+        }
+    }
+});
+
 
 searchInput.addEventListener('input', e => updateSuggestions(e.target.value.trim()));
 
