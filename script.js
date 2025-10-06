@@ -387,62 +387,180 @@ function buildSearchIndex() {
 }
 
 // Run search and update suggestions
+// Optional: build quick metadata from your searchIndex once (book -> maxChapter, and (book,chapter) -> maxVerse)
+const __bibleMeta = (() => {
+    const meta = { maxChapter: new Map(), maxVerse: new Map() };
+    if (!Array.isArray(searchIndex)) return meta;
+    for (const e of searchIndex) {
+        const b = e.book;
+        const c = +e.chapter, v = +e.verse;
+        meta.maxChapter.set(b, Math.max(meta.maxChapter.get(b) || 0, c));
+        const key = `${b}|${c}`;
+        meta.maxVerse.set(key, Math.max(meta.maxVerse.get(key) || 0, v));
+    }
+    return meta;
+})();
+
 function updateSuggestions(query) {
     if (!query) { searchSuggestions.style.display = "none"; return; }
-    const q = query.toLowerCase();
-    const parsed = parseReference(query);
-    let results = [];
 
-    // Direct reference match
-    if (parsed) {
-        results.push({
-            ref: `${parsed.book} ${parsed.chapter}:${parsed.verse}`,
-            preview: "(reference match)",
-            parsed
-        });
+    const q = query.trim();
+    const qLower = q.toLowerCase();
+    const results = [];
+
+    const books = bibleBookNames ? Array.from(bibleBookNames) : [];
+
+    // 1) BOOK PREFIX MODE (no book resolved yet): show books starting with the typed prefix
+    //    We stay in this mode as long as the *entire query* is still a prefix of at least one book.
+    const bookPrefixMatches = books.filter(b => b.toLowerCase().startsWith(qLower));
+    if (bookPrefixMatches.length > 0) {
+        // Only suggest books (no verse text yet)
+        for (const book of bookPrefixMatches.slice(0, 15)) {
+            results.push({
+                ref: book,
+                preview: "(book)",
+                parsed: { book, chapter: 1, verse: 1 }
+            });
+        }
+        return renderSuggestions(results);
     }
 
-    // 🔹 Book name suggestions
-    if (bibleBookNames && bibleBookNames.size) {
-        for (const book of bibleBookNames) {
-            if (book.toLowerCase().startsWith(q)) {
-                results.push({
-                    ref: book,
-                    preview: "(book name)",
-                    parsed: { book, chapter: 1, verse: 1 }
-                });
+    // 2) BOOK RESOLVED MODE: detect if query begins with a full/unique book name
+    //    Example: "Zechariah 9:8", "Zechariah 9", "Zechariah"
+    //    Find the longest book that matches the start of the query (case-insensitive).
+    let resolvedBook = null;
+    let remainder = "";
+    for (const book of books) {
+        const bl = book.toLowerCase();
+        if (qLower.startsWith(bl)) {
+            // ensure either exact end or a whitespace boundary after the book name
+            const nextChar = qLower.charAt(bl.length);
+            if (!nextChar || /\s/.test(nextChar)) {
+                if (!resolvedBook || bl.length > resolvedBook.toLowerCase().length) {
+                    resolvedBook = book;
+                    remainder = q.slice(book.length).trim(); // keep original casing for numbers/colons
+                }
             }
         }
     }
 
-    // Verse text suggestions (limit after book name hits)
-    for (const entry of searchIndex) {
-        if (entry.combinedLower.includes(q)) {
-            results.push({
-                ref: `${entry.book} ${entry.chapter}:${entry.verse}`,
-                preview: entry.text.slice(0, 100) + (entry.text.length > 100 ? "…" : ""),
-                parsed: { book: entry.book, chapter: +entry.chapter, verse: +entry.verse }
-            });
-            if (results.length > 15) break;
-        }
+    if (!resolvedBook) {
+        // Nothing matches as a prefix and no book resolved — hide suggestions.
+        searchSuggestions.style.display = "none";
+        return;
     }
 
-    if (results.length === 0) { searchSuggestions.style.display = "none"; return; }
-    searchSuggestions.innerHTML = results.map(r =>
-        `<div class="suggestion" data-book="${r.parsed.book}" data-chapter="${r.parsed.chapter}" data-verse="${r.parsed.verse}">
-       <strong>${r.ref}</strong><small>${r.preview}</small>
-     </div>`).join("");
-    searchSuggestions.style.display = "block";
-
-    searchSuggestions.querySelectorAll('.suggestion').forEach(el => {
-        el.addEventListener('click', () => {
-            const b = el.dataset.book, c = +el.dataset.chapter, v = +el.dataset.verse;
-            showVerse({ book: b, chapter: c, verse: v });
-            searchSuggestions.style.display = "none";
-            searchInput.value = "";
+    // If only the book is present (no numbers yet), suggest the book and a few chapter starters
+    const maxCh = __bibleMeta.maxChapter.get(resolvedBook) || 150; // fallback generous upper bound
+    if (!remainder) {
+        // Suggest the book itself + first few chapters
+        results.push({
+            ref: resolvedBook,
+            preview: "(book)",
+            parsed: { book: resolvedBook, chapter: 1, verse: 1 }
         });
+        for (let c = 1; c <= Math.min(5, maxCh); c++) {
+            results.push({
+                ref: `${resolvedBook} ${c}`,
+                preview: "(chapter)",
+                parsed: { book: resolvedBook, chapter: c, verse: 1 }
+            });
+        }
+        return renderSuggestions(results);
+    }
+
+    // 3) CHAPTER / VERSE MODE for the resolved book
+    // Accept patterns: "<chapter>", "<chapter>:", "<chapter>:<verse>"
+    // Gracefully handle partials like "9:", "9:8", "09:008"
+    const chapVerse = remainder.replace(/\s+/g, "");
+    const m = chapVerse.match(/^(\d{1,3})(?::(\d{1,3}))?$/); // simple ranges are enough for Bible refs
+    if (!m) {
+        // If the remainder isn't a chapter/verse shape, stop suggesting.
+        searchSuggestions.style.display = "none";
+        return;
+    }
+
+    const chapter = Math.min(parseInt(m[1], 10), maxCh || 150);
+    const verseKey = `${resolvedBook}|${chapter}`;
+    const maxV = __bibleMeta.maxVerse.get(verseKey) || 176; // generous fallback (Ps 119)
+    const hasColon = chapVerse.includes(":");
+    const verse = m[2] ? Math.min(parseInt(m[2], 10), maxV) : null;
+
+    if (!hasColon) {
+        // User typed only chapter → suggest that chapter + a few verse starters
+        results.push({
+            ref: `${resolvedBook} ${chapter}`,
+            preview: "(chapter)",
+            parsed: { book: resolvedBook, chapter, verse: 1 }
+        });
+        for (let v = 1; v <= Math.min(5, maxV); v++) {
+            results.push({
+                ref: `${resolvedBook} ${chapter}:${v}`,
+                preview: "(verse)",
+                parsed: { book: resolvedBook, chapter, verse: v }
+            });
+        }
+        return renderSuggestions(results);
+    }
+
+    // User typed chapter: (maybe verse)
+    if (verse == null) {
+        // Show first few verses in that chapter
+        for (let v = 1; v <= Math.min(10, maxV); v++) {
+            results.push({
+                ref: `${resolvedBook} ${chapter}:${v}`,
+                preview: "(verse)",
+                parsed: { book: resolvedBook, chapter, verse: v }
+            });
+        }
+        return renderSuggestions(results);
+    }
+
+    // Full chapter:verse present → prioritize the exact match, then nearby verses
+    results.push({
+        ref: `${resolvedBook} ${chapter}:${verse}`,
+        preview: "(reference)",
+        parsed: { book: resolvedBook, chapter, verse }
     });
+    // Add a couple neighbors for convenience
+    if (verse > 1) {
+        results.push({
+            ref: `${resolvedBook} ${chapter}:${verse - 1}`,
+            preview: "(nearby)",
+            parsed: { book: resolvedBook, chapter, verse: verse - 1 }
+        });
+    }
+    if (verse < maxV) {
+        results.push({
+            ref: `${resolvedBook} ${chapter}:${verse + 1}`,
+            preview: "(nearby)",
+            parsed: { book: resolvedBook, chapter, verse: verse + 1 }
+        });
+    }
+
+    renderSuggestions(results);
+
+    // --- helper that renders & wires clicks ---
+    function renderSuggestions(items) {
+        if (!items.length) { searchSuggestions.style.display = "none"; return; }
+        searchSuggestions.innerHTML = items.slice(0, 15).map(r =>
+            `<div class="suggestion" data-book="${r.parsed.book}" data-chapter="${r.parsed.chapter}" data-verse="${r.parsed.verse}">
+         <strong>${r.ref}</strong><small>${r.preview}</small>
+       </div>`
+        ).join("");
+        searchSuggestions.style.display = "block";
+
+        searchSuggestions.querySelectorAll('.suggestion').forEach(el => {
+            el.addEventListener('click', () => {
+                const b = el.dataset.book, c = +el.dataset.chapter, v = +el.dataset.verse;
+                showVerse({ book: b, chapter: c, verse: v });
+                searchSuggestions.style.display = "none";
+                searchInput.value = "";
+            });
+        });
+    }
 }
+
 
 searchInput.addEventListener('input', e => updateSuggestions(e.target.value.trim()));
 
