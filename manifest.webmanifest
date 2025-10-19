@@ -1,6 +1,6 @@
 {
-  "name": "My App",
-  "short_name": "MyApp",
+  "name": "Bible Voice",
+  "short_name": "Bible Voice App",
   "description": "A simple PWA hosted on Cloudflare Pages.",
   "start_url": "/?source=pwa",
   "scope": "/",

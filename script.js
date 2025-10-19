@@ -107,6 +107,7 @@ let currentRef = null;
 /* Responsive + user-controlled font logic */
 let baseFontSize = 44; // fallback
 let userAdjustedFont = false;
+let deferredPrompt;
 
 function log(msg) { logEl.innerText = msg; }
 
@@ -817,6 +818,31 @@ async function preloadBothXml() {
         }
     }
 }
+
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Stop Chrome from showing its mini-infobar
+  e.preventDefault();
+  deferredPrompt = e;
+  // Reveal your install button
+  const btn = document.getElementById('installBtn');
+  if (btn) btn.hidden = false;
+});
+
+document.getElementById('installBtn')?.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();                // Show the browser install prompt
+  const { outcome } = await deferredPrompt.userChoice;
+  // You can track 'accepted' or 'dismissed' here
+  deferredPrompt = null;                  // Must be used once
+  document.getElementById('installBtn').hidden = true;
+});
+
+// Optional: detect if already installed (hide the button)
+window.matchMedia('(display-mode: standalone)').addEventListener('change', (e) => {
+  if (e.matches) document.getElementById('installBtn').hidden = true;
+});
+
 
 /* Load local button behaviour */
 loadLocalBtn.addEventListener('click', async () => {
