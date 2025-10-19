@@ -866,6 +866,25 @@ langBtn.addEventListener('click', async () => {
     }
 });
 
+// Register the service worker for PWA features
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        // Optional: listen for updates
+        if (reg.waiting) {
+          // A new SW is waiting to activate
+          console.log('Update ready. It will take over on next reload.');
+        }
+        reg.addEventListener('updatefound', () => {
+          console.log('Downloading a new version …');
+        });
+      })
+      .catch(err => console.error('SW registration failed:', err));
+  });
+}
+
+
 /* ========= Responsive font: update from CSS unless user adjusted ========= */
 function refreshFontSizeFromCssIfAllowed() {
     if (userAdjustedFont) return;
