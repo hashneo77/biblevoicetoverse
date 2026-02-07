@@ -409,7 +409,18 @@ function updateSuggestions(query) {
     const qLower = q.toLowerCase();
     const results = [];
 
-    const books = bibleBookNames ? Array.from(bibleBookNames) : [];
+    // FIXED: Always use English book names for search (from BOOK_ALIASES or englishXML)
+    // so users can type in English regardless of current display language
+    let books = [];
+    if (Object.keys(BOOK_ALIASES).length > 0) {
+        // Get unique canonical book names from BOOK_ALIASES values
+        books = [...new Set(Object.values(BOOK_ALIASES))];
+    } else if (englishXML && englishXML.bookNames) {
+        books = Array.from(englishXML.bookNames);
+    } else {
+        // Fallback to current language book names
+        books = bibleBookNames ? Array.from(bibleBookNames) : [];
+    }
 
     // 1) BOOK PREFIX MODE (no book resolved yet): show books starting with the typed prefix
     //    We stay in this mode as long as the *entire query* is still a prefix of at least one book.
