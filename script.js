@@ -104,54 +104,6 @@ const verseRecBtn = document.getElementById('verseRecBtn');
 /* ========= App state ========= */
 let currentRef = null;
 
-/* ========= Recent Verses Helper Functions ========= */
-const MAX_RECENT = 15;
-
-function getRecentVerses() {
-    try {
-        const stored = localStorage.getItem('recentVerses');
-        return stored ? JSON.parse(stored) : [];
-    } catch (e) {
-        console.warn('Error reading recent verses:', e);
-        return [];
-    }
-}
-
-function saveRecentVerse(ref) {
-    try {
-        if (!ref || !ref.book || !ref.chapter || !ref.verse) return;
-
-        const recent = getRecentVerses();
-        const refKey = `${ref.book}|${ref.chapter}|${ref.verse}`;
-
-        // Remove if already exists (to move to front)
-        const filtered = recent.filter(r => `${r.book}|${r.chapter}|${r.verse}` !== refKey);
-
-        // Get verse text if available
-        let text = '';
-        if (bibleData && bibleData[ref.book] && bibleData[ref.book][String(ref.chapter)] && bibleData[ref.book][String(ref.chapter)][String(ref.verse)]) {
-            text = bibleData[ref.book][String(ref.chapter)][String(ref.verse)];
-            // Truncate long text
-            if (text.length > 100) text = text.substring(0, 100) + '...';
-        }
-
-        // Add to front
-        filtered.unshift({
-            book: ref.book,
-            chapter: ref.chapter,
-            verse: ref.verse,
-            text: text,
-            timestamp: Date.now()
-        });
-
-        // Keep only MAX_RECENT items
-        const trimmed = filtered.slice(0, MAX_RECENT);
-        localStorage.setItem('recentVerses', JSON.stringify(trimmed));
-    } catch (e) {
-        console.warn('Error saving recent verse:', e);
-    }
-}
-
 /* Responsive + user-controlled font logic */
 let baseFontSize = 44; // fallback
 let userAdjustedFont = false;
@@ -350,7 +302,6 @@ async function showVerse(parsed) {
             verseBodyEl.style.fontSize = baseFontSize + 'px';
             currentRef = parsed;
             log(resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
-            saveRecentVerse(currentRef);
             return;
         }
         if (bibleData) {
@@ -370,7 +321,6 @@ async function showVerse(parsed) {
         verseBodyEl.style.fontSize = baseFontSize + 'px';
         currentRef = parsed;
         log('Loaded from remote API.');
-        saveRecentVerse(currentRef);
     } catch (e) { log('Error: ' + (e && e.message ? e.message : e)); }
 }
 
@@ -991,65 +941,6 @@ window.addEventListener('load', () => {
     setTimeout(() => {
         refreshFontSizeFromCssIfAllowed();
     }, 120);
-});
-
-/* ========= Recent Verses UI ========= */
-const recentBtn = document.getElementById('recentBtn');
-const recentDropdown = document.getElementById('recentDropdown');
-
-function showRecentDropdown() {
-    const recent = getRecentVerses();
-
-    if (recent.length === 0) {
-        recentDropdown.innerHTML = '<div class="suggestion" style="cursor:default;opacity:0.6;">No recent verses yet</div>';
-        recentDropdown.style.display = 'block';
-        return;
-    }
-
-    recentDropdown.innerHTML = recent.map(r => `
-        <div class="suggestion" data-book="${r.book}" data-chapter="${r.chapter}" data-verse="${r.verse}">
-            <div class="recent-ref">${r.book} ${r.chapter}:${r.verse}</div>
-            ${r.text ? `<div class="recent-preview">${r.text}</div>` : ''}
-        </div>
-    `).join('');
-
-    recentDropdown.style.display = 'block';
-
-    recentDropdown.querySelectorAll('.suggestion').forEach(el => {
-        if (el.dataset.book) {
-            el.addEventListener('click', () => {
-                const b = el.dataset.book;
-                const c = +el.dataset.chapter;
-                const v = +el.dataset.verse;
-                showVerse({ book: b, chapter: c, verse: v });
-                recentDropdown.style.display = 'none';
-            });
-        }
-    });
-}
-
-function hideRecentDropdown() {
-    recentDropdown.style.display = 'none';
-}
-
-if (recentBtn) {
-    recentBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (recentDropdown.style.display === 'block') {
-            hideRecentDropdown();
-        } else {
-            // Hide search suggestions if open
-            if (searchSuggestions) searchSuggestions.style.display = 'none';
-            showRecentDropdown();
-        }
-    });
-}
-
-// Hide dropdown when clicking outside
-document.addEventListener('click', (e) => {
-    if (recentDropdown && !recentDropdown.contains(e.target) && e.target !== recentBtn) {
-        hideRecentDropdown();
-    }
 });
 
 /* ========= Start preloading on init ========= */

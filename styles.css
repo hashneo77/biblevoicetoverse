@@ -511,38 +511,6 @@ body[data-theme="dark"] .btn.recording {
     margin: -1px;
 }
 
-/* Recent verses dropdown */
-.recent-wrap {
-    position: relative;
-    display: inline-block;
-}
-
-.recent-dropdown {
-    position: absolute;
-    top: 42px;
-    right: 0;
-    min-width: 250px;
-    z-index: 200;
-}
-
-.recent-dropdown .suggestion {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.recent-dropdown .suggestion .recent-ref {
-    font-weight: 600;
-}
-
-.recent-dropdown .suggestion .recent-preview {
-    font-size: 12px;
-    opacity: 0.75;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 /* Version display */
 .version-display {
     position: fixed;
