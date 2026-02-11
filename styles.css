@@ -510,3 +510,31 @@ body[data-theme="dark"] .btn.recording {
     padding: 0;
     margin: -1px;
 }
+
+/* Version display */
+.version-display {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-weight: 500;
+    z-index: 100;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+body[data-theme="light"] .version-display {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--muted-light);
+}
+
+body[data-theme="dark"] .version-display {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted-dark);
+}
+
+.version-display:hover {
+    opacity: 1;
+}
