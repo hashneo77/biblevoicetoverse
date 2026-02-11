@@ -1,7 +1,8 @@
 {
   "name": "Bible Voice",
   "short_name": "Bible Voice App",
-  "description": "A simple PWA hosted on Cloudflare Pages.",
+  "description": "Bible Voice App - Start and Read a phrase from the Bible",
+  "version": "1.0.0",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
