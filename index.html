@@ -16,6 +16,22 @@
 
   <!-- External stylesheet -->
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyBkg__6ueuUWRGYZRF8-iqWmzb3OfKn8Mw",
+      authDomain: "biblevoicetoverse.firebaseapp.com",
+      databaseURL: "https://biblevoicetoverse-default-rtdb.firebaseio.com",
+      projectId: "biblevoicetoverse",
+      storageBucket: "biblevoicetoverse.firebasestorage.app",
+      messagingSenderId: "817133011749",
+      appId: "1:817133011749:web:efc22d1c1ebc54a42790cc"
+    });
+  </script>
 </head>
 
 <body data-theme="light" data-language="EN">
@@ -50,6 +66,7 @@
               role="listbox"
               aria-label="Search suggestions"></div>
         </div>
+        <button id="signInBtn" class="btn secondary" title="Sign in with Google">Sign In</button>
         <button id="installBtn" hidden>Install App</button>
 
 

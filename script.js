@@ -266,15 +266,60 @@ async function fetchAndParse(path) {
     }
 }
 
-/* ========= Fetch Bible from Firebase RTDB ========= */
-const FIREBASE_BASE = 'https://biblevoicetoverse-default-rtdb.firebaseio.com';
+/* ========= Firebase Auth & RTDB ========= */
+const fbAuth = firebase.auth();
+const fbDb = firebase.database();
+const signInBtn = document.getElementById('signInBtn');
 
+function updateSignInUI(user) {
+    if (user) {
+        signInBtn.textContent = user.displayName ? user.displayName.split(' ')[0] : 'Sign Out';
+        signInBtn.title = `Signed in as ${user.email} — click to sign out`;
+    } else {
+        signInBtn.textContent = 'Sign In';
+        signInBtn.title = 'Sign in with Google';
+    }
+}
+
+signInBtn.addEventListener('click', async () => {
+    if (fbAuth.currentUser) {
+        await fbAuth.signOut();
+        log('Signed out.');
+    } else {
+        try {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            await fbAuth.signInWithPopup(provider);
+        } catch (e) {
+            console.warn('Sign-in error:', e);
+            log('Sign-in failed: ' + (e.message || e));
+        }
+    }
+});
+
+/* Listen for auth state changes — load data once signed in */
+fbAuth.onAuthStateChanged(async (user) => {
+    updateSignInUI(user);
+    if (user) {
+        log('Signed in. Loading Bible data...');
+        await preloadBothXml();
+    } else {
+        englishXML = null;
+        malayalamXML = null;
+        bibleData = null;
+        bibleBookNames = null;
+        bibleEnglishToKeyMap = null;
+        verseRefEl.innerText = 'Please sign in';
+        verseBodyEl.innerText = '';
+        log('Please sign in to access Bible data.');
+    }
+});
+
+/* Fetch Bible from Firebase RTDB using SDK (authenticated) */
 async function fetchBibleFromFirebase(path) {
     try {
-        const resp = await fetch(`${FIREBASE_BASE}/${path}.json`);
-        if (!resp.ok) throw new Error('Firebase returned ' + resp.status);
-        const fbData = await resp.json();
-        if (!fbData) throw new Error('Firebase returned empty data');
+        const snapshot = await fbDb.ref(path).once('value');
+        const fbData = snapshot.val();
+        if (!fbData) throw new Error('Firebase returned empty data for ' + path);
 
         const bibleDataLocal = {};
         const englishToKeyMap = {};
@@ -1031,7 +1076,4 @@ window.addEventListener('load', () => {
     }, 120);
 });
 
-/* ========= Start preloading on init ========= */
-(async function init() {
-    await preloadBothXml();
-})();
+/* ========= Init handled by fbAuth.onAuthStateChanged ========= */
