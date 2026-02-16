@@ -151,49 +151,18 @@ function assignParsedToLang(parsedObj, lang) {
 /* ========= Firebase Auth & RTDB ========= */
 const fbAuth = firebase.auth();
 const fbDb = firebase.database();
-const signInBtn = document.getElementById('signInBtn');
+const signOutBtn = document.getElementById('signOutBtn');
 
-function updateSignInUI(user) {
-    if (user) {
-        signInBtn.textContent = user.displayName ? user.displayName.split(' ')[0] : 'Sign Out';
-        signInBtn.title = `Signed in as ${user.email} — click to sign out`;
-    } else {
-        signInBtn.textContent = 'Sign In';
-        signInBtn.title = 'Sign in with Google';
-    }
-}
+signOutBtn.addEventListener('click', () => fbAuth.signOut());
 
-signInBtn.addEventListener('click', async () => {
-    if (fbAuth.currentUser) {
-        await fbAuth.signOut();
-        log('Signed out.');
-    } else {
-        try {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            await fbAuth.signInWithPopup(provider);
-        } catch (e) {
-            console.warn('Sign-in error:', e);
-            log('Sign-in failed: ' + (e.message || e));
-        }
-    }
-});
-
-/* Listen for auth state changes — load data once signed in */
+/* Auth guard — redirect to login if not signed in, load data if signed in */
 fbAuth.onAuthStateChanged(async (user) => {
-    updateSignInUI(user);
-    if (user) {
-        log('Signed in. Loading Bible data...');
-        await preloadBothXml();
-    } else {
-        englishXML = null;
-        malayalamXML = null;
-        bibleData = null;
-        bibleBookNames = null;
-        bibleEnglishToKeyMap = null;
-        verseRefEl.innerText = 'Please sign in';
-        verseBodyEl.innerText = '';
-        log('Please sign in to access Bible data.');
+    if (!user) {
+        window.location.href = 'login.html';
+        return;
     }
+    log('Signed in. Loading Bible data...');
+    await preloadBothXml();
 });
 
 /* Fetch Bible from Firebase RTDB using SDK (authenticated) */
