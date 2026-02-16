@@ -277,19 +277,20 @@ async function fetchMalayalamFromFirebase() {
         const bibleDataLocal = {};
         const englishToKeyMap = {};
 
-        for (const bookNum of Object.keys(fbData)) {
-            const book = fbData[bookNum];
+        for (const bookKey of Object.keys(fbData)) {
+            const book = fbData[bookKey];
             if (!book) continue;
-            const xmlKey = book.name || `Book${bookNum}`;
+            const xmlKey = book.name || bookKey;
             const shortName = book.shortName || '';
 
             bibleDataLocal[xmlKey] = {};
             if (shortName) englishToKeyMap[shortName.toLowerCase()] = xmlKey;
 
             if (book.chapters) {
-                for (const ch of Object.keys(book.chapters)) {
-                    const verses = book.chapters[ch];
-                    if (!verses) continue;
+                for (const chKey of Object.keys(book.chapters)) {
+                    const verses = book.chapters[chKey];
+                    if (!verses || typeof verses !== 'object') continue;
+                    const ch = chKey.replace(/^ch/, '');
                     bibleDataLocal[xmlKey][ch] = {};
                     for (const v of Object.keys(verses)) {
                         if (verses[v] == null) continue;
