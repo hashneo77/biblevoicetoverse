@@ -896,7 +896,22 @@ window.matchMedia('(display-mode: standalone)').addEventListener('change', (e) =
 /* Load local button behaviour */
 loadLocalBtn.addEventListener('click', async () => {
     if (currentLanguage === 'EN' && englishXML && englishXML.data) { log('English XML already loaded.'); return; }
-    if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) { log('Malayalam XML already loaded.'); return; }
+    if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) { log('Malayalam already loaded.'); return; }
+    if (currentLanguage === 'ML') {
+        log('Loading Malayalam from Firebase...');
+        const mlParsed = await fetchMalayalamFromFirebase();
+        if (mlParsed) {
+            assignParsedToLang(mlParsed, 'ML');
+            bibleData = malayalamXML.data;
+            bibleBookNames = malayalamXML.bookNames;
+            bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+            refreshSearchIndex();
+            log('Malayalam loaded from Firebase.');
+            if (currentRef) showVerse(currentRef);
+            return;
+        }
+        log('Firebase failed. Select XML file from disk.');
+    }
     promptUserToSelectXmlFile((currentLanguage === 'EN') ? 'English_Catholic_XML.xml' : 'malayalam_bible.xml');
 });
 
@@ -918,11 +933,25 @@ langBtn.addEventListener('click', async () => {
             bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
             refreshSearchIndex();
             langBtn.innerText = 'ML / EN';
-            log('Language switched to Malayalam (in-memory).');
+            log('Language switched to Malayalam.');
             if (currentRef) showVerse(currentRef);
         } else {
-            log('Malayalam XML not loaded. Please select malayalam_bible.xml.');
-            promptUserToSelectXmlFile('malayalam_bible.xml');
+            log('Loading Malayalam from Firebase...');
+            const mlParsed = await fetchMalayalamFromFirebase();
+            if (mlParsed) {
+                assignParsedToLang(mlParsed, 'ML');
+                currentLanguage = 'ML';
+                bibleData = malayalamXML.data;
+                bibleBookNames = malayalamXML.bookNames;
+                bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+                refreshSearchIndex();
+                langBtn.innerText = 'ML / EN';
+                log('Malayalam loaded from Firebase.');
+                if (currentRef) showVerse(currentRef);
+            } else {
+                log('Could not load Malayalam from Firebase.');
+                document.body.setAttribute("data-language", "EN");
+            }
         }
     } else {
         if (englishXML && englishXML.data) {
