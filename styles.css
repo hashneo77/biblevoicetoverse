@@ -46,7 +46,7 @@ body[data-theme="light"] {
 /* Malayam font when language=ML */
 body[data-language="ML"] .verse-body,
 body[data-language="ML"] .verse-ref {
-    font-family: "Noto Serif Malayalam", "Noto Sans Malayalam", serif;
+    font-family: "Noto Sans Malayalam", "Noto Serif Malayalam", serif;
 }
 
 .wrap {
