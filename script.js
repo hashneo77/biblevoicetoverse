@@ -279,6 +279,7 @@ async function fetchMalayalamFromFirebase() {
 
         for (const bookNum of Object.keys(fbData)) {
             const book = fbData[bookNum];
+            if (!book) continue;
             const xmlKey = book.name || `Book${bookNum}`;
             const shortName = book.shortName || '';
 
