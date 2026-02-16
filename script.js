@@ -94,9 +94,7 @@ const logEl = document.getElementById('log');
 const bigPlus = document.getElementById('bigPlus');
 const bigMinus = document.getElementById('bigMinus');
 const themeBtn = document.getElementById('themeBtn');
-const loadLocalBtn = document.getElementById('loadLocalBtn');
 const langBtn = document.getElementById('langBtn');
-const xmlFileInput = document.getElementById('xmlFileInput');
 const verseStage = document.getElementById('verseStage');
 const verseMaxBtn = document.getElementById('verseMaxBtn');
 const verseRecBtn = document.getElementById('verseRecBtn');
@@ -125,100 +123,13 @@ function readComputedVerseFontSize() {
 baseFontSize = readComputedVerseFontSize();
 verseBodyEl.style.fontSize = baseFontSize + 'px';
 
-/* ========= XML parsing utilities (unchanged logic) ========= */
+/* ========= App data ========= */
 let englishXML = null;
 let malayalamXML = null;
 let bibleData = null;
 let bibleBookNames = null;
 let bibleEnglishToKeyMap = null;
 let currentLanguage = 'EN';
-
-function parseBibleXMLString(xmlString) {
-    function tryParse(str) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(str, "application/xml");
-        const parseErrorElem = doc.querySelector("parsererror");
-        return { doc, parseErrorElem };
-    }
-
-    try {
-        let { doc, parseErrorElem } = tryParse(xmlString);
-        if (!parseErrorElem) {
-            const bibleDataLocal = {};
-            const englishToKeyMap = {};
-            const books = doc.getElementsByTagName("BIBLEBOOK");
-            for (let i = 0; i < books.length; i++) {
-                const book = books[i];
-                const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i + 1}`;
-                const bsname = book.getAttribute("bsname");
-                bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
-                if (bsname) englishToKeyMap[bsname.toLowerCase()] = xmlKey;
-                const chapters = book.getElementsByTagName("CHAPTER");
-                for (let c = 0; c < chapters.length; c++) {
-                    const chap = chapters[c];
-                    const cnumber = chap.getAttribute("cnumber") || String(c + 1);
-                    bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
-                    const verses = chap.getElementsByTagName("VERS");
-                    for (let v = 0; v < verses.length; v++) {
-                        const vers = verses[v];
-                        const vnumber = vers.getAttribute("vnumber") || String(v + 1);
-                        const text = (vers.textContent || "").trim();
-                        bibleDataLocal[xmlKey][cnumber][vnumber] = text;
-                    }
-                }
-            }
-            const bookNamesSet = Object.keys(bibleDataLocal);
-            return { bibleDataLocal, bookNamesSet, englishToKeyMap };
-        }
-
-        console.warn("XML parse returned parsererror. Attempting recovery...");
-        let cleaned = xmlString;
-        if (cleaned.charCodeAt(0) === 0xFEFF) cleaned = cleaned.slice(1);
-        cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
-        const errText = (parseErrorElem.textContent || '').toLowerCase();
-        if (errText.includes('&') && cleaned.includes('&')) {
-            cleaned = cleaned.replace(/&(?!(#\d+;)|([a-zA-Z0-9]+;))/g, '&amp;');
-            console.warn("Attempted to escape lone ampersands in XML before retry.");
-        }
-
-        let retry = tryParse(cleaned);
-        if (!retry.parseErrorElem) {
-            console.info("XML parse succeeded after cleaning.");
-            const bibleDataLocal = {};
-            const englishToKeyMap = {};
-            const books = retry.doc.getElementsByTagName("BIBLEBOOK");
-            for (let i = 0; i < books.length; i++) {
-                const book = books[i];
-                const xmlKey = book.getAttribute("bname") || book.getAttribute("bsname") || book.getAttribute("bnumber") || book.getAttribute("btitle") || `Book${i + 1}`;
-                const bsname = book.getAttribute("bsname");
-                bibleDataLocal[xmlKey] = bibleDataLocal[xmlKey] || {};
-                if (bsname) englishToKeyMap[bsname.toLowerCase()] = xmlKey;
-                const chapters = book.getElementsByTagName("CHAPTER");
-                for (let c = 0; c < chapters.length; c++) {
-                    const chap = chapters[c];
-                    const cnumber = chap.getAttribute("cnumber") || String(c + 1);
-                    bibleDataLocal[xmlKey][cnumber] = bibleDataLocal[xmlKey][cnumber] || {};
-                    const verses = chap.getElementsByTagName("VERS");
-                    for (let v = 0; v < verses.length; v++) {
-                        const vers = verses[v];
-                        const vnumber = vers.getAttribute("vnumber") || String(v + 1);
-                        const text = (vers.textContent || "").trim();
-                        bibleDataLocal[xmlKey][cnumber][vnumber] = text;
-                    }
-                }
-            }
-            const bookNamesSet = Object.keys(bibleDataLocal);
-            return { bibleDataLocal, bookNamesSet, englishToKeyMap };
-        }
-
-        console.error("XML parsing still failed after cleaning. Final parsererror:");
-        try { console.error(retry.parseErrorElem.textContent || retry.parseErrorElem.innerHTML || retry.parseErrorElem); } catch (e) { console.error(retry.parseErrorElem); }
-        return null;
-    } catch (e) {
-        console.error("parseBibleXMLString unexpected error:", e);
-        return null;
-    }
-}
 
 function assignParsedToLang(parsedObj, lang) {
     if (!parsedObj) return;
@@ -234,35 +145,6 @@ function assignParsedToLang(parsedObj, lang) {
             bookNames: parsedObj.bookNamesSet,
             englishToKeyMap: parsedObj.englishToKeyMap || null
         };
-    }
-}
-
-async function fetchAndParse(path) {
-    try {
-        const candidates = Array.isArray(path) ? path : [path];
-        for (const p of candidates) {
-            try {
-                const resp = await fetch(p, { cache: 'no-store' });
-                if (!resp.ok) {
-                    console.warn('Fetch returned non-ok for', p, resp.status);
-                    continue;
-                }
-                const txt = await resp.text();
-                const parsed = parseBibleXMLString(txt);
-                if (!parsed) {
-                    console.warn('Failed to parse XML from', p);
-                    try { console.log('Snippet (first 1000 chars):', txt.slice(0, 1000).replace(/\r/g, '\\r').replace(/\n/g, '\\n')); } catch (e) { }
-                    continue;
-                }
-                return parsed;
-            } catch (err) {
-                console.warn('fetchAndParse error for', p, err && err.message ? err.message : err);
-            }
-        }
-        return null;
-    } catch (e) {
-        console.error("fetchAndParse unexpected error:", e);
-        return null;
     }
 }
 
@@ -837,35 +719,7 @@ document.addEventListener('keydown', (ev) => {
     }
 });
 
-/* ========= File input handler ========= */
-xmlFileInput.addEventListener('change', async (ev) => {
-    const f = ev.target.files && ev.target.files[0];
-    if (!f) { log('No file selected'); return; }
-    log('Reading file: ' + f.name);
-    try {
-        const txt = await f.text();
-        const parsed = parseBibleXMLString(txt);
-        if (!parsed) { log('Failed to parse selected XML file.'); return; }
-        const lower = (f.name || '').toLowerCase();
-        const lang = (lower.includes('malay') || lower.includes('ml')) ? 'ML' : 'EN';
-        assignParsedToLang(parsed, lang);
-        log('Local XML loaded from file: ' + f.name + ' — Books: ' + Object.keys((lang === 'EN' ? englishXML.data : malayalamXML.data)).length);
-        if (lang === currentLanguage) {
-            bibleData = (lang === 'EN') ? englishXML.data : malayalamXML.data;
-            bibleBookNames = (lang === 'EN') ? englishXML.bookNames : malayalamXML.bookNames;
-
-            bibleEnglishToKeyMap = (lang === 'EN') ? englishXML.englishToKeyMap : malayalamXML.englishToKeyMap;
-            refreshSearchIndex();
-            if (currentRef) showVerse(currentRef);
-        }
-    } catch (e) {
-        console.error(e); log('Error reading file: ' + (e && e.message ? e.message : e));
-    } finally {
-        xmlFileInput.value = '';
-    }
-});
-
-/* ========= Preload English & Malayalam XMLs ========= */
+/* ========= Preload English & Malayalam from Firebase ========= */
 async function preloadBothXml() {
     log('Loading Bible data from Firebase...');
     const [enParsed, mlParsed] = await Promise.all([
@@ -902,7 +756,7 @@ async function preloadBothXml() {
         langBtn && (langBtn.innerText = 'ML / EN');
         log('Defaulting to Malayalam XML.');
     } else {
-        log('No local XMLs found. Click "Load local XML" to open a file from disk.');
+        log('Could not load Bible data from Firebase.');
     }
 
     if (currentRef) showVerse(currentRef);
@@ -943,34 +797,6 @@ window.matchMedia('(display-mode: standalone)').addEventListener('change', (e) =
   if (e.matches) document.getElementById('installBtn').hidden = true;
 });
 
-
-/* Load local button behaviour */
-loadLocalBtn.addEventListener('click', async () => {
-    if (currentLanguage === 'EN' && englishXML && englishXML.data) { log('English already loaded.'); return; }
-    if (currentLanguage === 'ML' && malayalamXML && malayalamXML.data) { log('Malayalam already loaded.'); return; }
-    const lang = currentLanguage;
-    const path = lang === 'EN' ? 'english' : 'malayalam';
-    log(`Loading ${lang === 'EN' ? 'English' : 'Malayalam'} from Firebase...`);
-    const parsed = await fetchBibleFromFirebase(path);
-    if (parsed) {
-        assignParsedToLang(parsed, lang);
-        const src = lang === 'EN' ? englishXML : malayalamXML;
-        bibleData = src.data;
-        bibleBookNames = src.bookNames;
-        bibleEnglishToKeyMap = src.englishToKeyMap;
-        refreshSearchIndex();
-        log(`${lang === 'EN' ? 'English' : 'Malayalam'} loaded from Firebase.`);
-        if (currentRef) showVerse(currentRef);
-        return;
-    }
-    log('Firebase failed. Select XML file from disk.');
-    promptUserToSelectXmlFile(lang === 'EN' ? 'English_Catholic_XML.xml' : 'malayalam_bible.xml');
-});
-
-function promptUserToSelectXmlFile(filenameHint) {
-    log('Please select the bible XML file' + (filenameHint ? (' (e.g. ' + filenameHint + ')') : '') + ' from disk.');
-    xmlFileInput.click();
-}
 
 /* Language toggle */
 langBtn.addEventListener('click', async () => {
