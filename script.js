@@ -288,9 +288,11 @@ async function fetchMalayalamFromFirebase() {
 
             if (book.chapters) {
                 for (const ch of Object.keys(book.chapters)) {
-                    bibleDataLocal[xmlKey][ch] = {};
                     const verses = book.chapters[ch];
+                    if (!verses) continue;
+                    bibleDataLocal[xmlKey][ch] = {};
                     for (const v of Object.keys(verses)) {
+                        if (verses[v] == null) continue;
                         bibleDataLocal[xmlKey][ch][v] = verses[v];
                     }
                 }
