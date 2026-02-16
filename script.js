@@ -266,6 +266,44 @@ async function fetchAndParse(path) {
     }
 }
 
+/* ========= Fetch Malayalam Bible from Firebase RTDB ========= */
+async function fetchMalayalamFromFirebase() {
+    try {
+        const resp = await fetch('https://biblevoicetoverse-default-rtdb.firebaseio.com/.json');
+        if (!resp.ok) throw new Error('Firebase returned ' + resp.status);
+        const fbData = await resp.json();
+        if (!fbData) throw new Error('Firebase returned empty data');
+
+        const bibleDataLocal = {};
+        const englishToKeyMap = {};
+
+        for (const bookNum of Object.keys(fbData)) {
+            const book = fbData[bookNum];
+            const xmlKey = book.name || `Book${bookNum}`;
+            const shortName = book.shortName || '';
+
+            bibleDataLocal[xmlKey] = {};
+            if (shortName) englishToKeyMap[shortName.toLowerCase()] = xmlKey;
+
+            if (book.chapters) {
+                for (const ch of Object.keys(book.chapters)) {
+                    bibleDataLocal[xmlKey][ch] = {};
+                    const verses = book.chapters[ch];
+                    for (const v of Object.keys(verses)) {
+                        bibleDataLocal[xmlKey][ch][v] = verses[v];
+                    }
+                }
+            }
+        }
+
+        const bookNamesSet = Object.keys(bibleDataLocal);
+        return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+    } catch (e) {
+        console.warn('Firebase Malayalam fetch failed:', e.message || e);
+        return null;
+    }
+}
+
 /* ========= Helpers ========= */
 function isTypingInInput() {
     const active = document.activeElement;
@@ -778,10 +816,10 @@ xmlFileInput.addEventListener('change', async (ev) => {
 
 /* ========= Preload English & Malayalam XMLs ========= */
 async function preloadBothXml() {
-    log('Preloading English and Malayalam XMLs (if available)...');
+    log('Preloading English XML and Malayalam from Firebase...');
     const [enParsed, mlParsed] = await Promise.all([
         fetchAndParse('English_Catholic_XML.xml'),
-        fetchAndParse('malayalam_bible.xml')
+        fetchMalayalamFromFirebase()
     ]);
     if (enParsed) {
         assignParsedToLang(enParsed, 'EN');
@@ -791,10 +829,10 @@ async function preloadBothXml() {
         console.log('⚠️ English XML not available on server.');
     if (mlParsed) {
         assignParsedToLang(mlParsed, 'ML');
-        console.log('✅ Malayalam XML parsed — books:', Object.keys(malayalamXML.data).length);
+        console.log('✅ Malayalam loaded from Firebase — books:', Object.keys(malayalamXML.data).length);
     }
     else
-        console.log('⚠️ Malayalam XML not available on server.');
+        console.log('⚠️ Malayalam not available from Firebase.');
 
     if (englishXML && englishXML.data) {
         currentLanguage = 'EN';
