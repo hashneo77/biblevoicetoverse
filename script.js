@@ -155,12 +155,33 @@ const signOutBtn = document.getElementById('signOutBtn');
 
 signOutBtn.addEventListener('click', () => fbAuth.signOut());
 
+/* Record login in Firebase */
+function recordLogin(user) {
+    try {
+        const ref = fbDb.ref(`logins/${user.uid}`);
+        ref.push({
+            email: user.email || null,
+            name: user.displayName || null,
+            timestamp: firebase.database.ServerValue.TIMESTAMP
+        });
+        // Also update user profile summary
+        fbDb.ref(`users/${user.uid}`).update({
+            email: user.email || null,
+            name: user.displayName || null,
+            lastLogin: firebase.database.ServerValue.TIMESTAMP
+        });
+    } catch (e) {
+        console.warn('Failed to record login:', e);
+    }
+}
+
 /* Auth guard — redirect to login if not signed in, load data if signed in */
 fbAuth.onAuthStateChanged(async (user) => {
     if (!user) {
         window.location.href = 'login.html';
         return;
     }
+    recordLogin(user);
     log('Signed in. Loading Bible data...');
     await preloadBothXml();
 });
