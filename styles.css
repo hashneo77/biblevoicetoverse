@@ -216,6 +216,7 @@ body[data-theme="dark"] .verse-stage.fullscreen {
 .verse-ref {
     font-family: "Playfair Display", serif;
     font-weight: 700;
+    text-decoration: underline;
     font-size: clamp(var(--verse-ref-min), var(--verse-ref-preferred), var(--verse-ref-max));
     margin-bottom: 8px;
 }
