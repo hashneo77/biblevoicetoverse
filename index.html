@@ -72,20 +72,31 @@
 
     <button id="signOutBtn" class="sign-out-btn" title="Sign out">Sign Out</button>
 
-    <div class="panel" role="main">
-      <div class="transcript" id="transcript" aria-live="polite"></div>
+    <div class="main-layout">
+      <div class="panel" role="main">
+        <div class="transcript" id="transcript" aria-live="polite"></div>
 
-      <div class="verse-stage" id="verseStage" role="region" aria-label="Verse display">
-        <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
-        <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
+        <div class="verse-stage" id="verseStage" role="region" aria-label="Verse display">
+          <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
+          <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
 
-        <div>
-          <div class="verse-ref" id="verseRef">Jesus Loves You</div>
-          <div class="verse-body" id="verseBody"></div>
+          <div>
+            <div class="verse-ref" id="verseRef">Jesus Loves You</div>
+            <div class="verse-body" id="verseBody"></div>
+          </div>
         </div>
+
+        <div class="log" id="log" aria-live="polite">Ready</div>
       </div>
 
-      <div class="log" id="log" aria-live="polite">Ready</div>
+      <!-- Bible Browser Sidebar -->
+      <div class="bible-browser" id="bibleBrowser" aria-label="Bible browser">
+        <div class="browser-header">
+          <button id="browserBackBtn" class="browser-back" hidden aria-label="Go back">&#8592;</button>
+          <span id="browserTitle" class="browser-title">Books</span>
+        </div>
+        <div class="browser-list" id="browserList" role="list"></div>
+      </div>
     </div>
   </div>
 

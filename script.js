@@ -580,7 +580,119 @@ searchInput.addEventListener('keydown', e => {
     }
 });
 
-function refreshSearchIndex() { buildSearchIndex(); }
+function refreshSearchIndex() { buildSearchIndex(); initBrowser(); }
+
+/* ========= Bible Browser Sidebar ========= */
+const browserList   = document.getElementById('browserList');
+const browserTitle  = document.getElementById('browserTitle');
+const browserBackBtn = document.getElementById('browserBackBtn');
+
+// Browser drill-down state
+let browserLevel = 'books';   // 'books' | 'chapters' | 'verses'
+let browserBook  = null;
+let browserChapter = null;
+let browserFilter = '';       // current search-input filter (books level only)
+
+function initBrowser() {
+    browserLevel = 'books';
+    browserBook  = null;
+    browserChapter = null;
+    renderBrowserBooks();
+}
+
+function renderBrowserBooks() {
+    browserLevel = 'books';
+    browserBook  = null;
+    browserChapter = null;
+    browserTitle.textContent = 'Books';
+    browserBackBtn.hidden = true;
+    browserList.classList.remove('verse-grid');
+
+    const books = bibleData ? Object.keys(bibleData) : [];
+    const filter = browserFilter.toLowerCase().trim();
+    const filtered = filter ? books.filter(b => b.toLowerCase().includes(filter)) : books;
+
+    if (!filtered.length) {
+        browserList.innerHTML = `<div class="browser-empty">No books found</div>`;
+        return;
+    }
+    browserList.innerHTML = filtered.map(book =>
+        `<button class="browser-btn" data-book="${book}" role="listitem">${book}</button>`
+    ).join('');
+    browserList.querySelectorAll('.browser-btn').forEach(btn => {
+        btn.addEventListener('click', () => renderBrowserChapters(btn.dataset.book));
+    });
+}
+
+function renderBrowserChapters(book) {
+    browserLevel = 'chapters';
+    browserBook  = book;
+    browserChapter = null;
+    browserTitle.textContent = book;
+    browserBackBtn.hidden = false;
+    browserList.classList.remove('verse-grid');
+
+    const chapters = bibleData && bibleData[book] ? Object.keys(bibleData[book]).sort((a,b) => +a - +b) : [];
+    if (!chapters.length) {
+        browserList.innerHTML = `<div class="browser-empty">No chapters</div>`;
+        return;
+    }
+    browserList.innerHTML = chapters.map(ch =>
+        `<button class="browser-btn" data-chapter="${ch}" role="listitem">Chapter ${ch}</button>`
+    ).join('');
+    browserList.querySelectorAll('.browser-btn').forEach(btn => {
+        btn.addEventListener('click', () => renderBrowserVerses(book, btn.dataset.chapter));
+    });
+}
+
+function renderBrowserVerses(book, chapter) {
+    browserLevel = 'verses';
+    browserBook  = book;
+    browserChapter = chapter;
+    browserTitle.textContent = `${book} ${chapter}`;
+    browserBackBtn.hidden = false;
+    browserList.classList.add('verse-grid');
+
+    const verses = bibleData && bibleData[book] && bibleData[book][chapter]
+        ? Object.keys(bibleData[book][chapter]).sort((a,b) => +a - +b) : [];
+    if (!verses.length) {
+        browserList.innerHTML = `<div class="browser-empty">No verses</div>`;
+        return;
+    }
+    browserList.innerHTML = verses.map(v =>
+        `<button class="browser-btn verse-btn" data-verse="${v}" role="listitem">${v}</button>`
+    ).join('');
+    browserList.querySelectorAll('.browser-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const v = +btn.dataset.verse;
+            showVerse({ book, chapter: +chapter, verse: v });
+            // Highlight active verse
+            browserList.querySelectorAll('.browser-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+}
+
+// Back button handler
+browserBackBtn.addEventListener('click', () => {
+    if (browserLevel === 'verses')    renderBrowserChapters(browserBook);
+    else if (browserLevel === 'chapters') renderBrowserBooks();
+});
+
+// Connect search input to filter books in the sidebar
+searchInput.addEventListener('input', e => {
+    browserFilter = e.target.value.trim();
+    if (browserLevel === 'books') renderBrowserBooks();
+});
+searchInput.addEventListener('blur', () => {
+    // Small delay so suggestion click fires first
+    setTimeout(() => {
+        if (browserLevel === 'books') {
+            browserFilter = searchInput.value.trim();
+            renderBrowserBooks();
+        }
+    }, 200);
+});
 
 /* ========= Recording visual state ========= */
 function setRecordingState(isRecording) {

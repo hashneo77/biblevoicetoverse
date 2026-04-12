@@ -645,3 +645,193 @@ body[data-theme="dark"] .sign-out-btn:hover {
     margin-top: 16px;
     min-height: 1.2em;
 }
+
+/* ========= Main Layout (panel + sidebar) ========= */
+.main-layout {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.main-layout .panel {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ========= Bible Browser Sidebar ========= */
+.bible-browser {
+    width: 220px;
+    flex-shrink: 0;
+    border-radius: 14px;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 560px;
+    box-sizing: border-box;
+    transition: background .3s;
+}
+
+body[data-theme="light"] .bible-browser {
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+body[data-theme="dark"] .bible-browser {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.browser-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+
+body[data-theme="dark"] .browser-header {
+    border-bottom-color: rgba(255,255,255,0.07);
+}
+
+.browser-back {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    line-height: 1;
+    transition: background .15s;
+}
+
+body[data-theme="light"] .browser-back {
+    color: var(--accent-light);
+}
+
+body[data-theme="dark"] .browser-back {
+    color: var(--accent-dark);
+}
+
+.browser-back:hover {
+    background: rgba(0,0,0,0.06);
+}
+
+body[data-theme="dark"] .browser-back:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.browser-title {
+    font-size: 13px;
+    font-weight: 700;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.browser-list {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+/* Scrollbar styling */
+.browser-list::-webkit-scrollbar { width: 4px; }
+.browser-list::-webkit-scrollbar-track { background: transparent; }
+.browser-list::-webkit-scrollbar-thumb { border-radius: 4px; }
+
+body[data-theme="light"] .browser-list::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.15);
+}
+
+body[data-theme="dark"] .browser-list::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.15);
+}
+
+/* Verse level: use a grid for compact display */
+.browser-list.verse-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+}
+
+.browser-btn {
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: background .15s, color .15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+body[data-theme="light"] .browser-btn {
+    background: rgba(0, 0, 0, 0.03);
+    color: var(--text-light);
+}
+
+body[data-theme="dark"] .browser-btn {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-dark);
+}
+
+body[data-theme="light"] .browser-btn:hover {
+    background: rgba(11, 61, 145, 0.08);
+    color: #0b3d91;
+}
+
+body[data-theme="dark"] .browser-btn:hover {
+    background: rgba(255, 138, 0, 0.12);
+    color: #ff8a00;
+}
+
+/* Verse buttons are square and centered */
+.browser-btn.verse-btn {
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 12px;
+}
+
+.browser-btn.active {
+    font-weight: 700;
+}
+
+body[data-theme="light"] .browser-btn.active {
+    background: rgba(11, 61, 145, 0.12);
+    color: #0b3d91;
+}
+
+body[data-theme="dark"] .browser-btn.active {
+    background: rgba(255, 138, 0, 0.18);
+    color: #ff8a00;
+}
+
+.browser-empty {
+    font-size: 12px;
+    opacity: 0.5;
+    text-align: center;
+    padding: 20px 0;
+}
+
+/* Hide sidebar on small screens */
+@media (max-width: 700px) {
+    .main-layout {
+        flex-direction: column;
+    }
+    .bible-browser {
+        width: 100%;
+        max-height: 280px;
+    }
+    .browser-list.verse-grid {
+        grid-template-columns: repeat(6, 1fr);
+    }
+}
