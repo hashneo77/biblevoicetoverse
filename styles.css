@@ -773,9 +773,8 @@ body[data-theme="dark"] .browser-list::-webkit-scrollbar-thumb {
     font-weight: 500;
     font-family: inherit;
     transition: background .15s, color .15s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-break: break-word;
 }
 
 body[data-theme="light"] .browser-btn {
