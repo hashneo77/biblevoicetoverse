@@ -182,6 +182,7 @@ fbAuth.onAuthStateChanged(async (user) => {
         return;
     }
     recordLogin(user);
+    startRemoteListener();
     log('Signed in. Loading Bible data...');
     await preloadBothXml();
 });
@@ -262,6 +263,7 @@ async function showVerse(parsed) {
             verseBodyEl.innerText = text;
             verseBodyEl.style.fontSize = baseFontSize + 'px';
             currentRef = parsed;
+            pushCurrentRefToRemote(`${resolvedBook} ${parsed.chapter}:${parsed.verse}`, text);
             log(resolvedBook + ' ' + parsed.chapter + ':' + parsed.verse);
             return;
         }
@@ -283,6 +285,28 @@ async function showVerse(parsed) {
         currentRef = parsed;
         log('Loaded from remote API.');
     } catch (e) { log('Error: ' + (e && e.message ? e.message : e)); }
+}
+
+/* ========= Remote control via Firebase RTDB ========= */
+function startRemoteListener() {
+    let lastTs = null;
+    fbDb.ref('remote/cmd').on('value', snap => {
+        const d = snap.val();
+        if (!d || d.ts === lastTs) return;
+        lastTs = d.ts;
+        switch (d.action) {
+            case 'prev':     if (currentRef && currentRef.verse > 1) showVerse({ ...currentRef, verse: currentRef.verse - 1 }); break;
+            case 'next':     if (currentRef) showVerse({ ...currentRef, verse: currentRef.verse + 1 }); break;
+            case 'fontUp':   bigPlus.click();  break;
+            case 'fontDown': bigMinus.click(); break;
+        }
+    });
+}
+
+/* Write current verse to Firebase so the remote display can show it */
+function pushCurrentRefToRemote(refText, bodyText) {
+    try { fbDb.ref('remote/currentRef').set({ ref: refText, text: bodyText }); }
+    catch (e) { /* silent */ }
 }
 
 /* ========= Navigation and A+/A- handlers (updated to preserve user choice) ========= */

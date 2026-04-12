@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title>Bible Voice Remote</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f172a">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyBkg__6ueuUWRGYZRF8-iqWmzb3OfKn8Mw",
+      authDomain: "biblevoicetoverse.firebaseapp.com",
+      databaseURL: "https://biblevoicetoverse-default-rtdb.firebaseio.com",
+      projectId: "biblevoicetoverse",
+      storageBucket: "biblevoicetoverse.firebasestorage.app",
+      messagingSenderId: "817133011749",
+      appId: "1:817133011749:web:efc22d1c1ebc54a42790cc"
+    });
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0b1220;
+      --surface: #131e35;
+      --border: rgba(255,255,255,0.08);
+      --text: #e6eef6;
+      --muted: #7a8aa0;
+      --accent: #ffd166;
+      --accent-dim: rgba(255,209,102,0.12);
+      --green: #34d399;
+      --red: #f87171;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    /* ---- Login screen ---- */
+    #loginScreen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 24px;
+      padding: 32px;
+    }
+
+    .login-logo {
+      width: 72px;
+      height: 72px;
+      background: url('icons/icon-192.png') center/contain no-repeat;
+      border-radius: 16px;
+    }
+
+    #loginScreen h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+
+    #loginScreen p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      text-align: center;
+    }
+
+    .sign-in-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      background: var(--accent);
+      color: #0b1220;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: background .2s, transform .1s;
+      width: 100%;
+      max-width: 300px;
+      justify-content: center;
+    }
+
+    .sign-in-btn:hover { background: #ffe08a; transform: translateY(-1px); }
+    .sign-in-btn:active { transform: translateY(0); }
+    .sign-in-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    #loginStatus {
+      color: var(--red);
+      font-size: 0.85rem;
+      min-height: 1.2em;
+      text-align: center;
+    }
+
+    /* ---- Remote screen ---- */
+    #remoteScreen {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .remote-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .remote-header-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.5px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+
+    .status-dot.connected { background: var(--green); }
+
+    /* Current verse display */
+    .verse-display {
+      flex-shrink: 0;
+      padding: 18px 20px 14px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .verse-display-ref {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.3px;
+      margin-bottom: 4px;
+    }
+
+    .verse-display-text {
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Button grid */
+    .btn-grid {
+      flex: 1;
+      display: grid;
+      grid-template-rows: 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .remote-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: background .15s, transform .1s, border-color .15s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    .remote-btn:active {
+      transform: scale(0.95);
+      background: rgba(255,255,255,0.08);
+    }
+
+    .remote-btn .btn-icon {
+      font-size: 2.2rem;
+      line-height: 1;
+    }
+
+    .remote-btn .btn-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .remote-btn.nav-btn .btn-icon {
+      color: var(--accent);
+    }
+
+    .remote-btn.font-btn .btn-icon {
+      font-size: 1.8rem;
+      color: #93c5fd;
+    }
+
+    /* Flash feedback on press */
+    .remote-btn.flash {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+
+    /* Sign out footer */
+    .remote-footer {
+      padding: 10px 18px 16px;
+      display: flex;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .sign-out-link {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.8rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      font-family: inherit;
+    }
+
+    .sign-out-link:hover { color: var(--red); }
+  </style>
+</head>
+
+<body>
+  <!-- Login -->
+  <div id="loginScreen">
+    <div class="login-logo"></div>
+    <h1>Bible Voice</h1>
+    <p>Sign in to use the remote control</p>
+    <button class="sign-in-btn" id="signInBtn">Sign in with Google</button>
+    <div id="loginStatus"></div>
+  </div>
+
+  <!-- Remote -->
+  <div id="remoteScreen">
+    <div class="remote-header">
+      <span class="remote-header-title">REMOTE</span>
+      <span class="status-dot" id="statusDot" title="Waiting for main app"></span>
+    </div>
+
+    <div class="verse-display">
+      <div class="verse-display-ref" id="remoteVerseRef">—</div>
+      <div class="verse-display-text" id="remoteVerseText">Waiting for main app...</div>
+    </div>
+
+    <div class="btn-grid">
+      <button class="remote-btn nav-btn" id="btnPrev" aria-label="Previous verse">
+        <span class="btn-icon">&#9664;</span>
+        <span class="btn-label">Previous</span>
+      </button>
+      <button class="remote-btn nav-btn" id="btnNext" aria-label="Next verse">
+        <span class="btn-icon">&#9654;</span>
+        <span class="btn-label">Next</span>
+      </button>
+      <button class="remote-btn font-btn" id="btnFontDown" aria-label="Decrease font">
+        <span class="btn-icon">A-</span>
+        <span class="btn-label">Smaller</span>
+      </button>
+      <button class="remote-btn font-btn" id="btnFontUp" aria-label="Increase font">
+        <span class="btn-icon">A+</span>
+        <span class="btn-label">Larger</span>
+      </button>
+    </div>
+
+    <div class="remote-footer">
+      <button class="sign-out-link" id="remoteSignOut">Sign out</button>
+    </div>
+  </div>
+
+  <script>
+    const fbAuth = firebase.auth();
+    const fbDb   = firebase.database();
+
+    const loginScreen   = document.getElementById('loginScreen');
+    const remoteScreen  = document.getElementById('remoteScreen');
+    const signInBtn     = document.getElementById('signInBtn');
+    const loginStatus   = document.getElementById('loginStatus');
+    const statusDot     = document.getElementById('statusDot');
+    const remoteVerseRef  = document.getElementById('remoteVerseRef');
+    const remoteVerseText = document.getElementById('remoteVerseText');
+
+    /* ---- Auth ---- */
+    fbAuth.onAuthStateChanged(user => {
+      if (user) {
+        loginScreen.style.display = 'none';
+        remoteScreen.style.display = 'flex';
+        startRemote();
+      } else {
+        loginScreen.style.display = 'flex';
+        remoteScreen.style.display = 'none';
+      }
+    });
+
+    signInBtn.addEventListener('click', async () => {
+      signInBtn.disabled = true;
+      loginStatus.textContent = '';
+      try {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        await fbAuth.signInWithPopup(provider);
+      } catch (e) {
+        loginStatus.textContent = e.message || 'Sign-in failed.';
+        signInBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('remoteSignOut').addEventListener('click', () => fbAuth.signOut());
+
+    /* ---- Remote logic ---- */
+    function sendCmd(action) {
+      fbDb.ref('remote/cmd').set({
+        action,
+        ts: firebase.database.ServerValue.TIMESTAMP
+      });
+    }
+
+    function flash(btn) {
+      btn.classList.add('flash');
+      setTimeout(() => btn.classList.remove('flash'), 180);
+    }
+
+    function startRemote() {
+      // Button → send command
+      const map = [
+        ['btnPrev',     'prev'],
+        ['btnNext',     'next'],
+        ['btnFontDown', 'fontDown'],
+        ['btnFontUp',   'fontUp'],
+      ];
+      map.forEach(([id, action]) => {
+        const btn = document.getElementById(id);
+        btn.addEventListener('click', () => { sendCmd(action); flash(btn); });
+      });
+
+      // Listen for current verse info written by main app
+      fbDb.ref('remote/currentRef').on('value', snap => {
+        const d = snap.val();
+        if (!d) return;
+        statusDot.classList.add('connected');
+        statusDot.title = 'Main app connected';
+        if (d.ref)  remoteVerseRef.textContent  = d.ref;
+        if (d.text) remoteVerseText.textContent = d.text;
+      });
+    }
+  </script>
+</body>
+</html>
