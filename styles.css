@@ -50,8 +50,8 @@ body[data-language="ML"] .verse-ref {
 }
 
 .wrap {
-    max-width: 1200px;
-    margin: 28px auto;
+    width: 100%;
+    margin: 0;
     padding: 20px;
     box-sizing: border-box;
 }
@@ -176,8 +176,7 @@ body[data-theme="light"] .panel {
     border-radius: 12px;
     min-height: 420px;
     text-align: center;
-    width: 90%;
-    max-width: 1250px;
+    width: 100%;
     position: relative;
     overflow: hidden;
     box-sizing: border-box;
@@ -660,8 +659,7 @@ body[data-theme="dark"] .sign-out-btn:hover {
 
 /* ========= Recent Verses ========= */
 .recent-verses-section {
-    width: 90%;
-    max-width: 1250px;
+    width: 100%;
     padding: 10px 0 4px;
 }
 
