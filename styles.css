@@ -833,8 +833,7 @@ body[data-theme="dark"] .browser-btn.active {
         flex-direction: column;
     }
     .bible-browser {
-        width: 100%;
-        max-height: 280px;
+        display: none;
     }
     .browser-list.verse-grid {
         grid-template-columns: repeat(6, 1fr);
