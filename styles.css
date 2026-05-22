@@ -827,6 +827,60 @@ body[data-theme="dark"] .browser-btn.active {
     padding: 20px 0;
 }
 
+/* ========= Recent Verses ========= */
+.recent-verses-section {
+    width: 90%;
+    max-width: 1250px;
+    padding: 10px 0 4px;
+}
+
+.recent-verses-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.45;
+    margin-bottom: 8px;
+}
+
+.recent-verses-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.recent-verse-chip {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+body[data-theme="light"] .recent-verse-chip {
+    background: rgba(11, 61, 145, 0.07);
+    color: #0b3d91;
+    border-color: rgba(11, 61, 145, 0.15);
+}
+
+body[data-theme="light"] .recent-verse-chip:hover {
+    background: rgba(11, 61, 145, 0.14);
+}
+
+body[data-theme="dark"] .recent-verse-chip {
+    background: rgba(255, 138, 0, 0.1);
+    color: #ff8a00;
+    border-color: rgba(255, 138, 0, 0.2);
+}
+
+body[data-theme="dark"] .recent-verse-chip:hover {
+    background: rgba(255, 138, 0, 0.18);
+}
+
 /* Hide sidebar on small screens */
 @media (max-width: 700px) {
     .main-layout {

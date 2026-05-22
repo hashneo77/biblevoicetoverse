@@ -1033,4 +1033,50 @@ window.addEventListener('load', () => {
     }, 120);
 });
 
+/* ========= Recent Verses ========= */
+const RECENT_KEY = 'bv_recent_verses';
+const RECENT_MAX = 10;
+
+function loadRecentVerses() {
+    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); }
+    catch { return []; }
+}
+
+function saveRecentVerse(ref, displayRef) {
+    const list = loadRecentVerses().filter(r => r.key !== displayRef);
+    list.unshift({ key: displayRef, ref });
+    if (list.length > RECENT_MAX) list.length = RECENT_MAX;
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+    renderRecentVerses();
+}
+
+function renderRecentVerses() {
+    const section = document.getElementById('recentVersesSection');
+    const list = document.getElementById('recentVersesList');
+    if (!section || !list) return;
+    const items = loadRecentVerses();
+    if (!items.length) { section.hidden = true; return; }
+    section.hidden = false;
+    list.innerHTML = items.map(item =>
+        `<button class="recent-verse-chip" data-book="${item.ref.book}" data-chapter="${item.ref.chapter}" data-verse="${item.ref.verse}">${item.key}</button>`
+    ).join('');
+    list.querySelectorAll('.recent-verse-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            showVerse({ book: chip.dataset.book, chapter: +chip.dataset.chapter, verse: +chip.dataset.verse });
+        });
+    });
+}
+
+// Patch showVerse to record visits
+const _origShowVerse = showVerse;
+showVerse = async function(parsed) {
+    await _origShowVerse(parsed);
+    if (currentRef) {
+        const label = `${verseRefEl.innerText || (currentRef.book + ' ' + currentRef.chapter + ':' + currentRef.verse)}`;
+        saveRecentVerse(currentRef, label);
+    }
+};
+
+renderRecentVerses();
+
 /* ========= Init handled by fbAuth.onAuthStateChanged ========= */
