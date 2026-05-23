@@ -1,0 +1,27 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/node_modules/**",
+      "remote/src/**",
+      "remote/public/**",
+      "english_bible.json",
+      "malayalam_bible.json",
+      "memory/**",
+      ".claude/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/remote",
+        "destination": "/remote/dist/index.html"
+      },
+      {
+        "source": "/remote/**",
+        "destination": "/remote/dist/index.html"
+      }
+    ]
+  }
+}
