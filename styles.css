@@ -238,48 +238,34 @@ body[data-theme="light"] .panel {
     justify-content: center;
 }
 
-/* BOTH mode: side-by-side with equal flex */
+/* BOTH mode: stacked vertically */
 .verse-stage[data-display-mode="BOTH"] .verse-dual-wrap {
-    gap: 28px;
-}
-
-.verse-stage[data-display-mode="BOTH"] .verse-body {
-    flex: 1;
-}
-
-/* Auto-scale font down in BOTH mode so both fit */
-.verse-stage[data-display-mode="BOTH"] .verse-body {
-    font-size: clamp(14px, 2.8vw, 36px) !important;
-}
-
-.verse-stage[data-display-mode="BOTH"] .verse-ref {
-    font-size: clamp(16px, 2.4vw, 30px) !important;
+    flex-direction: column;
+    gap: 0;
 }
 
 .verse-divider {
-    width: 1px;
-    align-self: stretch;
+    width: 100%;
+    height: 1px;
     flex-shrink: 0;
-    margin: 4px 0;
+    margin: 16px 0 8px;
 }
 
 body[data-theme="light"] .verse-divider { background: rgba(0,0,0,0.12); }
 body[data-theme="dark"]  .verse-divider { background: rgba(255,255,255,0.12); }
 
-.verse-body-ml {
-    font-family: "Noto Sans Malayalam", "Noto Serif Malayalam", serif;
+.verse-ml-heading {
+    font-size: 0.75em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.45;
+    margin-bottom: 8px;
+    font-family: "Noto Sans Malayalam", sans-serif;
 }
 
-@media (max-width: 700px) {
-    .verse-stage[data-display-mode="BOTH"] .verse-dual-wrap {
-        flex-direction: column;
-        gap: 16px;
-    }
-    .verse-divider { width: 100% !important; height: 1px; align-self: auto; }
-    .verse-stage[data-display-mode="BOTH"] .verse-body { flex: none; width: 100%; }
-    .verse-stage[data-display-mode="BOTH"] .verse-body {
-        font-size: clamp(14px, 4vw, 26px) !important;
-    }
+.verse-body-ml {
+    font-family: "Noto Sans Malayalam", "Noto Serif Malayalam", serif;
 }
 
 body[data-theme="dark"] .verse-stage {
