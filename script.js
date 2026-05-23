@@ -139,13 +139,15 @@ function assignParsedToLang(parsedObj, lang) {
         englishXML = {
             data: parsedObj.bibleDataLocal,
             bookNames: parsedObj.bookNamesSet,
-            englishToKeyMap: parsedObj.englishToKeyMap || null
+            englishToKeyMap: parsedObj.englishToKeyMap || null,
+            nameToFirebaseKey: parsedObj.nameToFirebaseKey || null
         };
     } else if (lang === 'ML') {
         malayalamXML = {
             data: parsedObj.bibleDataLocal,
             bookNames: parsedObj.bookNamesSet,
-            englishToKeyMap: parsedObj.englishToKeyMap || null
+            englishToKeyMap: parsedObj.englishToKeyMap || null,
+            nameToFirebaseKey: parsedObj.nameToFirebaseKey || null
         };
     }
 }
@@ -206,6 +208,7 @@ async function fetchBibleFromFirebase(path) {
 
         const bibleDataLocal = {};
         const englishToKeyMap = {};
+        const nameToFirebaseKey = {}; // xmlKey → Firebase path key
 
         for (const bookKey of Object.keys(fbData)) {
             const book = fbData[bookKey];
@@ -214,6 +217,7 @@ async function fetchBibleFromFirebase(path) {
             const shortName = book.shortName || '';
 
             bibleDataLocal[xmlKey] = {};
+            nameToFirebaseKey[xmlKey] = bookKey;
             if (shortName) englishToKeyMap[shortName.toLowerCase()] = xmlKey;
 
             if (book.chapters) {
@@ -231,7 +235,7 @@ async function fetchBibleFromFirebase(path) {
         }
 
         const bookNamesSet = Object.keys(bibleDataLocal);
-        return { bibleDataLocal, bookNamesSet, englishToKeyMap };
+        return { bibleDataLocal, bookNamesSet, englishToKeyMap, nameToFirebaseKey };
     } catch (e) {
         console.warn(`Firebase fetch failed for ${path}:`, e.message || e);
         return null;
@@ -936,5 +940,40 @@ showVerse = async function(parsed) {
 };
 
 renderRecentVerses();
+
+/* ========= Edit → Save to Firebase ========= */
+async function saveVerseEdit(xmlStore, fbPath, englishBook, chapter, verse, newText) {
+    const { resolvedBook } = lookupVerse(xmlStore, englishBook, chapter, verse);
+    const firebaseKey = xmlStore?.nameToFirebaseKey?.[resolvedBook];
+    if (!firebaseKey) { console.warn('saveVerseEdit: no firebase key for', resolvedBook); return; }
+    await fbDb.ref(`${fbPath}/${firebaseKey}/chapters/ch${chapter}/${verse}`).set(newText);
+    if (xmlStore.data?.[resolvedBook]?.[String(chapter)]) {
+        xmlStore.data[resolvedBook][String(chapter)][String(verse)] = newText;
+    }
+    log('Saved ✓');
+    setTimeout(() => { if (logEl.innerText === 'Saved ✓') logEl.innerText = 'Ready'; }, 2000);
+}
+
+let _saveEnTimer = null, _saveMLTimer = null;
+
+verseBodyEl.addEventListener('input', () => {
+    clearTimeout(_saveEnTimer);
+    _saveEnTimer = setTimeout(async () => {
+        if (!currentRef || !englishXML) return;
+        try {
+            await saveVerseEdit(englishXML, 'english', currentRef.book, currentRef.chapter, currentRef.verse, verseBodyEl.innerText.trim());
+        } catch (e) { console.error('English save failed', e); log('Save failed'); }
+    }, 1200);
+});
+
+verseBodyML.addEventListener('input', () => {
+    clearTimeout(_saveMLTimer);
+    _saveMLTimer = setTimeout(async () => {
+        if (!currentRef || !malayalamXML) return;
+        try {
+            await saveVerseEdit(malayalamXML, 'malayalam', currentRef.book, currentRef.chapter, currentRef.verse, verseBodyML.innerText.trim());
+        } catch (e) { console.error('Malayalam save failed', e); log('Save failed'); }
+    }, 1200);
+});
 
 /* ========= Init handled by fbAuth.onAuthStateChanged ========= */
