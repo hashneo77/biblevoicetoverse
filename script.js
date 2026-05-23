@@ -99,7 +99,6 @@ const verseMaxBtn = document.getElementById('verseMaxBtn');
 const verseRecBtn = document.getElementById('verseRecBtn');
 const verseBodyML = document.getElementById('verseBodyML');
 const verseDivider = document.getElementById('verseDivider');
-const verseMLHeading = document.getElementById('verseMLHeading');
 
 /* ========= App state ========= */
 let currentRef = null;
@@ -844,7 +843,6 @@ async function setDisplayMode(mode) {
     const isBoth = mode === 'BOTH';
     verseBodyML.hidden = !isBoth;
     verseDivider.hidden = !isBoth;
-    verseMLHeading.hidden = !isBoth;
     verseStage.dataset.displayMode = mode;
 
     refreshSearchIndex();
