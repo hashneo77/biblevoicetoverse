@@ -57,24 +57,25 @@
         <button id="bigMinus" class="btn secondary" title="Decrease font">A-</button>
         <button id="bigPlus" class="btn" title="Increase font">A+</button>
         <button id="themeBtn" class="btn" title="Toggle theme">🌞/🌙</button>
-        <div class="search-wrap" style="margin-left:6px;">
-          <input id="searchInput"
-                placeholder="Search verses or type a reference (e.g. John 3:16)"
-                aria-label="Search verses"
-                autocomplete="off" />
-          <div id="searchSuggestions"
-              class="suggestions"
-              style="display:none;"
-              role="listbox"
-              aria-label="Search suggestions"></div>
-        </div>
         <button id="installBtn" hidden>Install App</button>
-
-
       </div>
     </div>
 
     <button id="signOutBtn" class="sign-out-btn" title="Sign out">Sign Out</button>
+
+    <div class="search-row">
+      <div class="search-wrap">
+        <input id="searchInput"
+              placeholder="Search or type a reference…"
+              aria-label="Search verses"
+              autocomplete="off" />
+        <div id="searchSuggestions"
+            class="suggestions"
+            style="display:none;"
+            role="listbox"
+            aria-label="Search suggestions"></div>
+      </div>
+    </div>
 
     <div class="main-layout">
       <div class="panel" role="main">

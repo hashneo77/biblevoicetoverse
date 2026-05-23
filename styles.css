@@ -409,6 +409,12 @@ body[data-theme="dark"] .verse-ref:focus {
 }
 
 /* SEARCH UI */
+.search-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
 .search-wrap {
     position: relative;
     display: flex;
@@ -416,7 +422,7 @@ body[data-theme="dark"] .verse-ref:focus {
 }
 
 #searchInput {
-    min-width: 220px;
+    min-width: 320px;
     padding: 10px 14px;
     border-radius: 10px;
     border: 2px solid rgba(0, 0, 0, 0.25);
