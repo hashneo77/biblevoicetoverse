@@ -176,6 +176,7 @@ function recordLogin(user) {
 }
 
 /* Auth guard — redirect to login if not signed in, load data if signed in */
+const PAGE_LOAD_TIME = Date.now();
 fbAuth.onAuthStateChanged(async (user) => {
     if (!user) {
         window.location.href = 'login.html';
@@ -184,6 +185,14 @@ fbAuth.onAuthStateChanged(async (user) => {
     recordLogin(user);
     log('Signed in. Loading Bible data...');
     await preloadBothXml();
+
+    // Listen for verse selections from the Bible Remote app
+    fbDb.ref('remote/currentVerse').on('value', snapshot => {
+        const val = snapshot.val();
+        if (!val || !val.book || !val.timestamp) return;
+        if (val.timestamp < PAGE_LOAD_TIME) return; // ignore stale selections
+        showVerse({ book: val.book, chapter: val.chapter, verse: val.verse });
+    });
 });
 
 /* Fetch Bible from Firebase RTDB using SDK (authenticated) */
