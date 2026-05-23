@@ -94,13 +94,15 @@ const logEl = document.getElementById('log');
 const bigPlus = document.getElementById('bigPlus');
 const bigMinus = document.getElementById('bigMinus');
 const themeBtn = document.getElementById('themeBtn');
-const langBtn = document.getElementById('langBtn');
 const verseStage = document.getElementById('verseStage');
 const verseMaxBtn = document.getElementById('verseMaxBtn');
 const verseRecBtn = document.getElementById('verseRecBtn');
+const verseBodyML = document.getElementById('verseBodyML');
+const verseDivider = document.getElementById('verseDivider');
 
 /* ========= App state ========= */
 let currentRef = null;
+let displayMode = 'EN'; // 'EN' | 'ML' | 'BOTH'
 
 /* Responsive + user-controlled font logic */
 let baseFontSize = 44; // fallback
@@ -260,10 +262,38 @@ function resolveBookName(spokenBook) {
     return spokenBook;
 }
 
+/* Look up a verse in a specific XML store by English book name */
+function lookupVerse(xmlStore, englishBook, chapter, verse) {
+    if (!xmlStore || !xmlStore.data) return { text: null, resolvedBook: englishBook };
+    const { data, englishToKeyMap: map } = xmlStore;
+    const lower = englishBook.toLowerCase();
+    let key = englishBook;
+    if (!data[key]) {
+        if (map && map[lower] && data[map[lower]]) key = map[lower];
+        else for (const k of Object.keys(data)) { if (k.toLowerCase() === lower) { key = k; break; } }
+        if (!data[key]) for (const k of Object.keys(data)) { if (k.toLowerCase().startsWith(lower)) { key = k; break; } }
+    }
+    return { text: data[key]?.[String(chapter)]?.[String(verse)] || null, resolvedBook: key };
+}
+
 /* ========= Display verse (uses bibleData if available, otherwise remote API) ========= */
 async function showVerse(parsed) {
     try {
         if (!parsed) { log("No reference to show."); return; }
+
+        if (displayMode === 'BOTH') {
+            const { text: enText, resolvedBook: enBook } = lookupVerse(englishXML, parsed.book, parsed.chapter, parsed.verse);
+            const { text: mlText } = lookupVerse(malayalamXML, parsed.book, parsed.chapter, parsed.verse);
+            verseRefEl.innerText = `${enBook} ${parsed.chapter}:${parsed.verse}`;
+            verseBodyEl.innerText = enText || '(not found)';
+            verseBodyML.innerText = mlText || '(not found)';
+            verseBodyEl.style.fontSize = '';
+            verseBodyML.style.fontSize = '';
+            currentRef = parsed;
+            log(enBook + ' ' + parsed.chapter + ':' + parsed.verse);
+            return;
+        }
+
         const resolvedBook = bibleData ? resolveBookName(parsed.book) : parsed.book;
         if (bibleData && bibleData[resolvedBook] && bibleData[resolvedBook][String(parsed.chapter)] && bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)]) {
             const text = bibleData[resolvedBook][String(parsed.chapter)][String(parsed.verse)];
@@ -702,19 +732,17 @@ document.addEventListener('keydown', (ev) => {
     }, { passive: false });
 })();
 
-/* Toggle language on "E" keypress (ignore when typing in inputs/textareas/contenteditable) */
+/* Cycle display mode on "E" keypress */
 document.addEventListener('keydown', (ev) => {
     if (isTypingInInput()) return;
-    const active = document.activeElement;
-    const tag = active && active.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
     try {
         if (ev.key && ev.key.toLowerCase() === 'e') {
             ev.preventDefault();
-            if (langBtn) langBtn.click();
+            const next = displayMode === 'EN' ? 'BOTH' : displayMode === 'BOTH' ? 'ML' : 'EN';
+            setDisplayMode(next);
         }
     } catch (err) {
-        console.warn('Language toggle key handler error', err);
+        console.warn('Mode cycle key handler error', err);
     }
 });
 
@@ -738,38 +766,10 @@ async function preloadBothXml() {
     else
         console.log('⚠️ Malayalam not available from Firebase.');
 
-    if (englishXML && englishXML.data) {
-        currentLanguage = 'EN';
-        bibleData = englishXML.data;
-        bibleBookNames = englishXML.bookNames;
-        bibleEnglishToKeyMap = englishXML.englishToKeyMap;
-        refreshSearchIndex();
-        langBtn && (langBtn.innerText = 'EN / ML');
-        log('Defaulting to English XML.');
-    } else if (malayalamXML && malayalamXML.data) {
-        currentLanguage = 'ML';
-        bibleData = malayalamXML.data;
-        bibleBookNames = malayalamXML.bookNames;
-        bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
-        refreshSearchIndex();
-        langBtn && (langBtn.innerText = 'ML / EN');
-        log('Defaulting to Malayalam XML.');
-    } else {
-        log('Could not load Bible data from Firebase.');
-    }
-
-    if (currentRef) showVerse(currentRef);
-    else if (currentLanguage === 'EN') showVerse({ book: "Genesis", chapter: 1, verse: 1 });
-    else if (currentLanguage === 'ML') {
-        if (bibleEnglishToKeyMap && bibleEnglishToKeyMap['genesis']) {
-            const xmlKey = bibleEnglishToKeyMap['genesis'];
-            if (bibleData && bibleData[xmlKey] && bibleData[xmlKey]['1'] && bibleData[xmlKey]['1']['1']) {
-                verseRefEl.innerText = `${xmlKey} 1:1`;
-                verseBodyEl.innerText = bibleData[xmlKey]['1']['1'];
-                verseBodyEl.style.fontSize = baseFontSize + 'px';
-            }
-        }
-    }
+    const defaultMode = englishXML?.data ? 'EN' : malayalamXML?.data ? 'ML' : null;
+    if (!defaultMode) { log('Could not load Bible data from Firebase.'); return; }
+    await setDisplayMode(defaultMode);
+    if (!currentRef) showVerse({ book: 'Genesis', chapter: 1, verse: 1 });
 }
 
 
@@ -797,68 +797,58 @@ window.matchMedia('(display-mode: standalone)').addEventListener('change', (e) =
 });
 
 
-/* Language toggle */
-langBtn.addEventListener('click', async () => {
-    if (currentLanguage === 'EN') document.body.setAttribute("data-language", "ML");
-    else document.body.setAttribute("data-language", "EN");
+/* ========= Display Mode Selector ========= */
+async function setDisplayMode(mode) {
+    displayMode = mode;
 
-    if (currentLanguage === 'EN') {
-        if (malayalamXML && malayalamXML.data) {
-            currentLanguage = 'ML';
-            bibleData = malayalamXML.data;
-            bibleBookNames = malayalamXML.bookNames;
-            bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
-            refreshSearchIndex();
-            langBtn.innerText = 'ML / EN';
-            log('Language switched to Malayalam.');
-            if (currentRef) showVerse(currentRef);
-        } else {
-            log('Loading Malayalam from Firebase...');
-            const mlParsed = await fetchBibleFromFirebase('malayalam');
-            if (mlParsed) {
-                assignParsedToLang(mlParsed, 'ML');
-                currentLanguage = 'ML';
-                bibleData = malayalamXML.data;
-                bibleBookNames = malayalamXML.bookNames;
-                bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
-                refreshSearchIndex();
-                langBtn.innerText = 'ML / EN';
-                log('Malayalam loaded from Firebase.');
-                if (currentRef) showVerse(currentRef);
-            } else {
-                log('Could not load Malayalam from Firebase.');
-                document.body.setAttribute("data-language", "EN");
-            }
-        }
-    } else {
-        if (englishXML && englishXML.data) {
-            currentLanguage = 'EN';
-            bibleData = englishXML.data;
-            bibleBookNames = englishXML.bookNames;
-            bibleEnglishToKeyMap = englishXML.englishToKeyMap;
-            refreshSearchIndex();
-            langBtn.innerText = 'EN / ML';
-            log('Language switched to English (in-memory).');
-            if (currentRef) showVerse(currentRef);
-        } else {
-            log('Loading English from Firebase...');
-            const enParsed = await fetchBibleFromFirebase('english');
-            if (enParsed) {
-                assignParsedToLang(enParsed, 'EN');
-                currentLanguage = 'EN';
-                bibleData = englishXML.data;
-                bibleBookNames = englishXML.bookNames;
-                bibleEnglishToKeyMap = englishXML.englishToKeyMap;
-                refreshSearchIndex();
-                langBtn.innerText = 'EN / ML';
-                log('English loaded from Firebase.');
-                if (currentRef) showVerse(currentRef);
-            } else {
-                log('Could not load English from Firebase.');
-                document.body.setAttribute("data-language", "ML");
-            }
-        }
+    // Update button active states
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    // Ensure required data is loaded
+    if ((mode === 'EN' || mode === 'BOTH') && (!englishXML || !englishXML.data)) {
+        log('Loading English...');
+        const p = await fetchBibleFromFirebase('english');
+        if (p) assignParsedToLang(p, 'EN');
+        else { log('Could not load English.'); return; }
     }
+    if ((mode === 'ML' || mode === 'BOTH') && (!malayalamXML || !malayalamXML.data)) {
+        log('Loading Malayalam...');
+        const p = await fetchBibleFromFirebase('malayalam');
+        if (p) assignParsedToLang(p, 'ML');
+        else { log('Could not load Malayalam.'); return; }
+    }
+
+    // Set primary language for search / navigation
+    if (mode === 'ML') {
+        currentLanguage = 'ML';
+        bibleData = malayalamXML.data;
+        bibleBookNames = malayalamXML.bookNames;
+        bibleEnglishToKeyMap = malayalamXML.englishToKeyMap;
+        document.body.setAttribute('data-language', 'ML');
+    } else {
+        currentLanguage = 'EN';
+        bibleData = englishXML.data;
+        bibleBookNames = englishXML.bookNames;
+        bibleEnglishToKeyMap = englishXML.englishToKeyMap;
+        document.body.setAttribute('data-language', 'EN');
+    }
+
+    // Show / hide secondary verse body
+    const isBoth = mode === 'BOTH';
+    verseBodyML.hidden = !isBoth;
+    verseDivider.hidden = !isBoth;
+    verseStage.dataset.displayMode = mode;
+
+    refreshSearchIndex();
+    if (currentRef) showVerse(currentRef);
+    else log('Mode: ' + mode);
+}
+
+document.getElementById('modeSelector').addEventListener('click', e => {
+    const btn = e.target.closest('.mode-btn');
+    if (btn) setDisplayMode(btn.dataset.mode);
 });
 
 // Register the service worker for PWA features

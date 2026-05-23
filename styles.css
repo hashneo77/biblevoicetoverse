@@ -138,6 +138,49 @@ body[data-theme="light"] .btn {
     padding: 10px 12px;
 }
 
+/* ========= Mode Selector ========= */
+.mode-selector {
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+    gap: 2px;
+    padding: 3px;
+}
+
+body[data-theme="light"] .mode-selector {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+body[data-theme="dark"] .mode-selector {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.mode-btn {
+    padding: 7px 13px;
+    border: none;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    background: transparent;
+    transition: background .15s, color .15s;
+}
+
+body[data-theme="light"] .mode-btn { color: #555; }
+body[data-theme="dark"] .mode-btn { color: var(--muted-dark); }
+
+body[data-theme="light"] .mode-btn.active {
+    background: #fff;
+    color: var(--accent-light);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+
+body[data-theme="dark"] .mode-btn.active {
+    background: rgba(255,255,255,0.12);
+    color: var(--accent-dark);
+}
+
 .panel {
     border-radius: 14px;
     padding: 18px;
@@ -181,6 +224,62 @@ body[data-theme="light"] .panel {
     position: relative;
     overflow: hidden;
     box-sizing: border-box;
+}
+
+/* ── Dual-language layout ── */
+.verse-content-wrap {
+    width: 100%;
+}
+
+.verse-dual-wrap {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+/* BOTH mode: side-by-side with equal flex */
+.verse-stage[data-display-mode="BOTH"] .verse-dual-wrap {
+    gap: 28px;
+}
+
+.verse-stage[data-display-mode="BOTH"] .verse-body {
+    flex: 1;
+}
+
+/* Auto-scale font down in BOTH mode so both fit */
+.verse-stage[data-display-mode="BOTH"] .verse-body {
+    font-size: clamp(14px, 2.8vw, 36px) !important;
+}
+
+.verse-stage[data-display-mode="BOTH"] .verse-ref {
+    font-size: clamp(16px, 2.4vw, 30px) !important;
+}
+
+.verse-divider {
+    width: 1px;
+    align-self: stretch;
+    flex-shrink: 0;
+    margin: 4px 0;
+}
+
+body[data-theme="light"] .verse-divider { background: rgba(0,0,0,0.12); }
+body[data-theme="dark"]  .verse-divider { background: rgba(255,255,255,0.12); }
+
+.verse-body-ml {
+    font-family: "Noto Sans Malayalam", "Noto Serif Malayalam", serif;
+}
+
+@media (max-width: 700px) {
+    .verse-stage[data-display-mode="BOTH"] .verse-dual-wrap {
+        flex-direction: column;
+        gap: 16px;
+    }
+    .verse-divider { width: 100% !important; height: 1px; align-self: auto; }
+    .verse-stage[data-display-mode="BOTH"] .verse-body { flex: none; width: 100%; }
+    .verse-stage[data-display-mode="BOTH"] .verse-body {
+        font-size: clamp(14px, 4vw, 26px) !important;
+    }
 }
 
 body[data-theme="dark"] .verse-stage {

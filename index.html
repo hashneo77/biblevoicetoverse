@@ -49,7 +49,11 @@
         <button id="startStopBtn" class="btn" aria-pressed="false">Start</button>
         <button id="prevBtn" class="btn secondary icon" title="Previous verse">◀</button>
         <button id="nextBtn" class="btn secondary icon" title="Next verse">▶</button>
-        <button id="langBtn" class="btn secondary" title="Toggle language">EN / ML</button>
+        <div class="mode-selector" id="modeSelector" role="group" aria-label="Display language">
+          <button class="mode-btn active" data-mode="EN">EN</button>
+          <button class="mode-btn" data-mode="BOTH">EN+ML</button>
+          <button class="mode-btn" data-mode="ML">ML</button>
+        </div>
         <button id="bigMinus" class="btn secondary" title="Decrease font">A-</button>
         <button id="bigPlus" class="btn" title="Increase font">A+</button>
         <button id="themeBtn" class="btn" title="Toggle theme">🌞/🌙</button>
@@ -80,9 +84,13 @@
           <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
           <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
 
-          <div>
+          <div class="verse-content-wrap">
             <div class="verse-ref" id="verseRef" contenteditable="true" spellcheck="false">Jesus Loves You</div>
-            <div class="verse-body" id="verseBody" contenteditable="true" spellcheck="false"></div>
+            <div class="verse-dual-wrap">
+              <div class="verse-body" id="verseBody" contenteditable="true" spellcheck="false"></div>
+              <div class="verse-divider" id="verseDivider" hidden></div>
+              <div class="verse-body verse-body-ml" id="verseBodyML" contenteditable="true" spellcheck="false" hidden></div>
+            </div>
           </div>
         </div>
 
