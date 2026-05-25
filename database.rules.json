@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "english": {
+      ".read": true,
+      ".write": true
+    },
+    "malayalam": {
+      ".read": true,
+      ".write": true
+    },
+    "config": {
+      ".read": true,
+      ".write": false
+    },
+    "remote": {
+      ".read": true,
+      ".write": true
+    },
+    "ccc": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}

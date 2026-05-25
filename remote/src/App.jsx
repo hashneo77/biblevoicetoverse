@@ -1,28 +1,38 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut
-} from 'firebase/auth';
-import { ref, set } from 'firebase/database';
-import { auth, db, DB_URL } from './firebase';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { ref, set, onValue } from 'firebase/database';
+import { db, DB_URL } from './firebase';
 import './App.css';
 
+const OT_BOOKS = [
+  'Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth',
+  '1 Samuel','2 Samuel','1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra',
+  'Nehemiah','Tobit','Judith','Esther','1 Maccabees','2 Maccabees','Job','Psalms',
+  'Proverbs','Ecclesiastes','Song of Songs','Wisdom','Sirach','Isaiah','Jeremiah',
+  'Lamentations','Baruch','Ezekiel','Daniel','Hosea','Joel','Amos','Obadiah','Jonah',
+  'Micah','Nahum','Habakkuk','Zephaniah','Haggai','Zechariah','Malachi',
+];
+
+const NT_BOOKS = [
+  'Matthew','Mark','Luke','John','Acts','Romans','1 Corinthians','2 Corinthians',
+  'Galatians','Ephesians','Philippians','Colossians','1 Thessalonians','2 Thessalonians',
+  '1 Timothy','2 Timothy','Titus','Philemon','Hebrews','James','1 Peter','2 Peter',
+  '1 John','2 John','3 John','Jude','Revelation',
+];
+
 async function restFetch(path, shallow = false) {
-  const token = await auth.currentUser.getIdToken();
-  const qs = shallow ? '&shallow=true' : '';
-  const res = await fetch(`${DB_URL}/${path}.json?auth=${token}${qs}`);
+  const qs = shallow ? '?shallow=true' : '';
+  const res = await fetch(`${DB_URL}/${path}.json${qs}`);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   return res.json();
 }
 
 export default function App() {
-  const [user, setUser] = useState(undefined); // undefined = checking auth
-  const [authError, setAuthError] = useState(null);
-
-  const [books, setBooks] = useState([]);
-  const [booksLoading, setBooksLoading] = useState(false);
+  const [allBooks, setAllBooks] = useState([]);
+  const [booksLoading, setBooksLoading] = useState(true);
   const [nameToKey, setNameToKey] = useState({});
 
-  const [view, setView] = useState('books');
+  const [view, setView] = useState('testament');
+  const [testament, setTestament] = useState(null);
   const [selectedBook, setSelectedBook] = useState(null);
   const [selectedBookKey, setSelectedBookKey] = useState(null);
   const [chapters, setChapters] = useState([]);
@@ -31,27 +41,43 @@ export default function App() {
   const [verses, setVerses] = useState([]);
   const [versesLoading, setVersesLoading] = useState(false);
 
+  // CCC navigation
+  const CCC_TOTAL = 2865;
+  const CCC_RANGE_SIZE = 100;
+  const cccRanges = Array.from(
+    { length: Math.ceil(CCC_TOTAL / CCC_RANGE_SIZE) },
+    (_, i) => ({ start: i * CCC_RANGE_SIZE + 1, end: Math.min((i + 1) * CCC_RANGE_SIZE, CCC_TOTAL) })
+  );
+  const [selectedCccRange, setSelectedCccRange] = useState(null);
+
   const [sent, setSent] = useState(null);
   const [error, setError] = useState(null);
 
-  useEffect(() => onAuthStateChanged(auth, u => setUser(u || null)), []);
+  // Settings state (mirrors what's active on the main display)
+  const [language, setLanguage] = useState('EN');
+  const [theme, setTheme] = useState('light');
+
+  // AI keyword search
+  const [searchView, setSearchView] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState(null);
+  const pendingSearchTs = useRef(null);
 
   const loadBooks = useCallback(async () => {
-    if (!auth.currentUser) return;
     setBooksLoading(true);
     setError(null);
     try {
       const bookKeys = await restFetch('english', true);
       const keys = Object.keys(bookKeys || {});
       const names = await Promise.all(keys.map(k => restFetch(`english/${k}/name`)));
-
       const map = {};
       const list = keys
         .map((k, i) => ({ key: k, name: names[i] }))
         .filter(b => typeof b.name === 'string');
       list.forEach(b => { map[b.name] = b.key; });
       setNameToKey(map);
-      setBooks(list);
+      setAllBooks(list);
     } catch (e) {
       setError('Could not load books: ' + e.message);
     } finally {
@@ -59,12 +85,63 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => { if (user) loadBooks(); }, [user, loadBooks]);
+  useEffect(() => { loadBooks(); }, [loadBooks]);
 
-  async function signIn() {
-    setAuthError(null);
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch (e) { setAuthError(e.message); }
+  // Listen for search results written back by the main display app
+  useEffect(() => {
+    const unsub = onValue(ref(db, 'remote/searchResults'), snap => {
+      const val = snap.val();
+      if (!val || val.ts !== pendingSearchTs.current) return;
+      setSearchResults(val.results || []);
+      setSearchLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  async function submitSearch() {
+    const q = searchQuery.trim();
+    if (!q) return;
+    const ts = Date.now();
+    pendingSearchTs.current = ts;
+    setSearchLoading(true);
+    setSearchResults(null);
+    try {
+      await set(ref(db, 'remote/searchQuery'), { q, ts });
+    } catch (e) {
+      setError('Search failed: ' + e.message);
+      setSearchLoading(false);
+    }
+  }
+
+  async function sendSearchResult(result) {
+    const match = result.ref.match(/^(.+)\s+(\d+):(\d+)$/);
+    if (!match) return;
+    try {
+      await set(ref(db, 'remote/currentVerse'), {
+        book: match[1],
+        chapter: Number(match[2]),
+        verse: Number(match[3]),
+        timestamp: Date.now(),
+      });
+      setSent(result.ref);
+      setTimeout(() => setSent(null), 2000);
+    } catch (e) {
+      setError('Send failed: ' + e.message);
+    }
+  }
+
+  function getBooksForTestament(t) {
+    const order = t === 'OT' ? OT_BOOKS : NT_BOOKS;
+    const nameSet = new Set(allBooks.map(b => b.name));
+    return order
+      .filter(name => nameSet.has(name))
+      .map(name => allBooks.find(b => b.name === name))
+      .filter(Boolean);
+  }
+
+  function selectTestament(t) {
+    setTestament(t);
+    setView('books');
   }
 
   async function selectBook(name) {
@@ -124,46 +201,78 @@ export default function App() {
     }
   }
 
+  async function sendSetting(path, value) {
+    try {
+      await set(ref(db, `remote/settings/${path}`), value);
+    } catch (e) {
+      setError('Setting failed: ' + e.message);
+    }
+  }
+
+  function toggleLanguage() {
+    const next = language === 'EN' ? 'ML' : 'EN';
+    setLanguage(next);
+    sendSetting('language', next);
+  }
+
+  function toggleTheme() {
+    const next = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    sendSetting('theme', next);
+  }
+
+  function sendFontSize(delta) {
+    sendSetting('fontSizeCmd', { delta, ts: Date.now() });
+  }
+
+  function sendNav(dir) {
+    sendSetting('nav', { dir, ts: Date.now() });
+  }
+
+  async function sendCccParagraph(num) {
+    try {
+      await set(ref(db, 'remote/cccParagraph'), { paragraph: num, ts: Date.now() });
+      setSent(`CCC #${num}`);
+      setTimeout(() => setSent(null), 2000);
+    } catch (e) {
+      setError('Send failed: ' + e.message);
+    }
+  }
+
   function goBack() {
-    if (view === 'verses') setView('chapters');
-    else goHome();
+    if (searchView) { setSearchView(false); setSearchResults(null); setSearchQuery(''); return; }
+    if (view === 'ccc-paragraphs') { setView('ccc-ranges'); setSelectedCccRange(null); return; }
+    if (view === 'ccc-ranges')     { setView('testament'); return; }
+    if (view === 'verses')        setView('chapters');
+    else if (view === 'chapters') setView('books');
+    else if (view === 'books')    setView('testament');
   }
 
   function goHome() {
-    setView('books');
+    setView('testament');
+    setTestament(null);
     setSelectedBook(null);
     setSelectedBookKey(null);
     setSelectedChapter(null);
     setChapters([]);
     setVerses([]);
+    setSelectedCccRange(null);
   }
 
-  if (user === undefined) return <div className="splash"><div className="spinner" /></div>;
-
-  if (!user) return (
-    <div className="login-screen">
-      <div className="login-card">
-        <div className="login-icon">📖</div>
-        <h1>Bible Remote</h1>
-        <p>Control the display from your phone</p>
-        <button className="google-btn" onClick={signIn}>
-          <GoogleLogo /> Sign in with Google
-        </button>
-        {authError && <p className="auth-error">{authError}</p>}
-      </div>
-    </div>
-  );
-
   const headerTitle =
-    view === 'books' ? 'Books' :
-    view === 'chapters' ? selectedBook :
+    searchView               ? 'AI Search' :
+    view === 'testament'     ? 'Bible Remote' :
+    view === 'ccc-ranges'    ? 'Catechism (CCC)' :
+    view === 'ccc-paragraphs' ? `CCC #${selectedCccRange?.start}–${selectedCccRange?.end}` :
+    view === 'books'         ? (testament === 'OT' ? 'Old Testament' : 'New Testament') :
+    view === 'chapters'      ? selectedBook :
     `${selectedBook} · Ch ${selectedChapter}`;
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-left">
-          {view !== 'books' && (
+          {(view !== 'testament' || searchView) && (
             <button className="icon-btn" onClick={goBack} aria-label="Back">
               <ChevronLeft />
             </button>
@@ -171,14 +280,41 @@ export default function App() {
           <span className="header-title">{headerTitle}</span>
         </div>
         <div className="header-right">
-          {view !== 'books' && (
+          {view !== 'testament' && (
             <button className="icon-btn" onClick={goHome} aria-label="Home">
               <HomeIcon />
             </button>
           )}
-          <button className="sign-out-btn" onClick={() => signOut(auth)}>Out</button>
         </div>
       </header>
+
+      {/* Floating settings bar */}
+      <div className="settings-bar">
+        <button className="settings-btn icon-only" onClick={() => sendNav('prev')} aria-label="Previous verse">
+          <ChevronLeft small />
+        </button>
+        <button className="settings-btn icon-only" onClick={() => sendNav('next')} aria-label="Next verse">
+          <ChevronRight small />
+        </button>
+        <button className="settings-btn icon-only" onClick={() => sendSetting('fullscreen', { ts: Date.now() })} aria-label="Toggle fullscreen">
+          <FullscreenIcon />
+        </button>
+        <div className="settings-divider" />
+        <button className={`settings-btn lang-btn${language === 'ML' ? ' active' : ''}`} onClick={toggleLanguage}>
+          {language}
+        </button>
+        <div className="settings-divider" />
+        <button className="settings-btn font-btn" onClick={() => sendFontSize(-1)} aria-label="Decrease font">
+          A<span className="font-sub">−</span>
+        </button>
+        <button className="settings-btn font-btn" onClick={() => sendFontSize(1)} aria-label="Increase font">
+          A<span className="font-sup">+</span>
+        </button>
+        <div className="settings-divider" />
+        <button className="settings-btn" onClick={toggleTheme} aria-label="Toggle theme">
+          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        </button>
+      </div>
 
       <main className="app-main">
         {error && (
@@ -187,22 +323,120 @@ export default function App() {
           </div>
         )}
 
-        {view === 'books' && (
-          booksLoading
-            ? <CenterSpinner />
-            : <ul className="book-list">
-                {books.map(b => (
-                  <li key={b.key}>
-                    <button className="book-btn" onClick={() => selectBook(b.name)}>
-                      <span>{b.name}</span>
-                      <ChevronRight />
+        {/* AI keyword search view */}
+        {searchView && (
+          <div className="search-view">
+            <div className="search-input-row">
+              <input
+                className="search-input"
+                type="text"
+                placeholder="e.g. forgiveness, hope, love…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && submitSearch()}
+                autoFocus
+              />
+              <button
+                className="search-go-btn"
+                onClick={submitSearch}
+                disabled={searchLoading || !searchQuery.trim()}
+              >
+                {searchLoading ? <span className="search-spinner" /> : <SearchSparkleIcon />}
+              </button>
+            </div>
+
+            {searchLoading && (
+              <p className="search-status">Searching with AI…</p>
+            )}
+
+            {searchResults !== null && searchResults.length === 0 && (
+              <p className="search-status">No results found. Try different keywords.</p>
+            )}
+
+            {searchResults && searchResults.length > 0 && (
+              <ul className="search-results">
+                {searchResults.map((r, i) => (
+                  <li key={i}>
+                    <button className="search-result-btn" onClick={() => sendSearchResult(r)}>
+                      <span className="result-ref">{r.ref}</span>
+                      <span className="result-text">{r.text}</span>
+                      {r.reason && <span className="result-reason">{r.reason}</span>}
                     </button>
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
         )}
 
-        {view === 'chapters' && (
+        {!searchView && view === 'testament' && (
+          booksLoading
+            ? <CenterSpinner />
+            : <div className="testament-grid">
+                <button className="testament-btn" onClick={() => selectTestament('OT')}>
+                  <span className="testament-label">Old Testament</span>
+                  <span className="testament-count">{getBooksForTestament('OT').length} books</span>
+                </button>
+                <button className="testament-btn" onClick={() => selectTestament('NT')}>
+                  <span className="testament-label">New Testament</span>
+                  <span className="testament-count">{getBooksForTestament('NT').length} books</span>
+                </button>
+                <button
+                  className="testament-btn ccc-testament-btn"
+                  onClick={() => setView('ccc-ranges')}
+                >
+                  <span className="testament-label" style={{ fontFamily: 'serif' }}>CCC</span>
+                  <span className="testament-count">2865 paragraphs</span>
+                </button>
+                <button
+                  className="testament-btn search-testament-btn"
+                  onClick={() => { setSearchView(true); setSearchResults(null); setSearchQuery(''); }}
+                >
+                  <SearchSparkleIcon />
+                  <span className="testament-label">AI Search</span>
+                  <span className="testament-count">Find by meaning</span>
+                </button>
+              </div>
+        )}
+
+        {!searchView && view === 'ccc-ranges' && (
+          <div className="num-grid">
+            {cccRanges.map(r => (
+              <button
+                key={r.start}
+                className="num-btn ccc-range-btn"
+                onClick={() => { setSelectedCccRange(r); setView('ccc-paragraphs'); }}
+              >
+                {r.start}–{r.end}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!searchView && view === 'ccc-paragraphs' && selectedCccRange && (
+          <div className="num-grid">
+            {Array.from({ length: selectedCccRange.end - selectedCccRange.start + 1 }, (_, i) => selectedCccRange.start + i).map(n => (
+              <button key={n} className="num-btn ccc-para-btn" onClick={() => sendCccParagraph(n)}>
+                {n}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!searchView && view === 'books' && (
+          <ul className="book-list">
+            {getBooksForTestament(testament).map(b => (
+              <li key={b.key}>
+                <button className="book-btn" onClick={() => selectBook(b.name)}>
+                  <span>{b.name}</span>
+                  <ChevronRight />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {!searchView && view === 'chapters' && (
           chaptersLoading
             ? <CenterSpinner />
             : <div className="num-grid">
@@ -214,7 +448,7 @@ export default function App() {
               </div>
         )}
 
-        {view === 'verses' && (
+        {!searchView && view === 'verses' && (
           versesLoading
             ? <CenterSpinner />
             : <div className="num-grid">
@@ -239,27 +473,40 @@ export default function App() {
 function CenterSpinner() {
   return <div className="center-spinner"><div className="spinner" /></div>;
 }
-
-function GoogleLogo() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
-      <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 32.8 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.7 1.1 7.8 2.9l5.7-5.7C34 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.7-8 19.7-20 0-1.3-.1-2.7-.1-4z"/>
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 16 19 13 24 13c3 0 5.7 1.1 7.8 2.9l5.7-5.7C34 6.5 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
-      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.6 26.8 37 24 37c-5.2 0-9.5-3.2-11.3-7.7l-6.5 5C9.8 39.8 16.4 44 24 44z"/>
-      <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.9 2.5-2.6 4.6-4.8 6l6.2 5.2C40.9 35.5 44 30.2 44 24c0-1.3-.1-2.7-.4-4z"/>
-    </svg>
-  );
+function ChevronLeft({ small } = {}) {
+  const s = small ? 16 : 22;
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>;
 }
-
-function ChevronLeft() {
-  return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>;
-}
-function ChevronRight() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
+function ChevronRight({ small } = {}) {
+  const s = small ? 16 : 16;
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
 }
 function HomeIcon() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>;
 }
 function CheckIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+}
+function FullscreenIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+      <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+    </svg>
+  );
+}
+function SearchSparkleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10" cy="10" r="6"/>
+      <line x1="21" y1="21" x2="15.65" y2="15.65"/>
+      <path fill="currentColor" stroke="none" d="M10 4l.9 2.7L14 8l-3.1.9L10 12l-.9-3.1L6 8l3.1-.9L10 4z"/>
+    </svg>
+  );
+}
+function SunIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>;
+}
+function MoonIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>;
 }

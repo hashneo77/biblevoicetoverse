@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+remote/node_modules/
+functions/node_modules/
+
+# Build output
+dist/
+
+# Firebase
+.firebase/
+.firebaserc
+
+# Local data exports (stored in Firebase, not needed in git)
+english_bible.json
+malayalam_bible.json
+catechism_raw.json
+catechism_firebase.json
+
+# IDE / OS
+.claude/
+.DS_Store
+Thumbs.db
+*.local

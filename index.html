@@ -1,110 +1,24 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Bible Voice</title>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0f172a">
-  <!-- iOS helpful bits -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bible Voice</title>
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
 
-  <!-- Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@300;400;600;700&family=Noto+Serif+Malayalam:wght@400;700&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-
-  <!-- External stylesheet -->
-  <link rel="stylesheet" href="styles.css">
-
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-  <script>
-    firebase.initializeApp({
-      apiKey: "AIzaSyBkg__6ueuUWRGYZRF8-iqWmzb3OfKn8Mw",
-      authDomain: "biblevoicetoverse.firebaseapp.com",
-      databaseURL: "https://biblevoicetoverse-default-rtdb.firebaseio.com",
-      projectId: "biblevoicetoverse",
-      storageBucket: "biblevoicetoverse.firebasestorage.app",
-      messagingSenderId: "817133011749",
-      appId: "1:817133011749:web:efc22d1c1ebc54a42790cc"
-    });
-  </script>
-</head>
-
-<body data-theme="light" data-language="EN">
-  <div class="wrap">
-    <div class="top">
-      <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
-      </div>
-
-      <div class="controls" role="toolbar" aria-label="Controls">
-        <button id="startStopBtn" class="btn" aria-pressed="false">Start</button>
-        <button id="prevBtn" class="btn secondary icon" title="Previous verse">◀</button>
-        <button id="nextBtn" class="btn secondary icon" title="Next verse">▶</button>
-        <div class="mode-selector" id="modeSelector" role="group" aria-label="Display language">
-          <button class="mode-btn active" data-mode="EN">EN</button>
-          <button class="mode-btn" data-mode="BOTH">EN+ML</button>
-          <button class="mode-btn" data-mode="ML">ML</button>
-        </div>
-        <button id="bigMinus" class="btn secondary" title="Decrease font">A-</button>
-        <button id="bigPlus" class="btn" title="Increase font">A+</button>
-        <button id="themeBtn" class="btn" title="Toggle theme">🌞/🌙</button>
-        <div class="search-wrap" style="margin-left:6px;">
-          <input id="searchInput"
-                placeholder="Search verses or type a reference (e.g. John 3:16)"
-                aria-label="Search verses"
-                autocomplete="off" />
-          <div id="searchSuggestions"
-              class="suggestions"
-              style="display:none;"
-              role="listbox"
-              aria-label="Search suggestions"></div>
-        </div>
-        <button id="installBtn" hidden>Install App</button>
-
-
-      </div>
-    </div>
-
-    <button id="signOutBtn" class="sign-out-btn" title="Sign out">Sign Out</button>
-
-    <div class="main-layout">
-      <div class="panel" role="main">
-        <div class="transcript" id="transcript" aria-live="polite"></div>
-
-        <div class="verse-stage" id="verseStage" role="region" aria-label="Verse display">
-          <button id="verseRecBtn" class="verse-rec-btn" aria-hidden="true" title="Recording" type="button">●</button>
-          <button id="verseMaxBtn" class="verse-max-btn" aria-pressed="false" title="Maximize (F)">⤢</button>
-
-          <div class="verse-content-wrap">
-            <div class="verse-ref" id="verseRef" contenteditable="true" spellcheck="false">Jesus Loves You</div>
-            <div class="verse-dual-wrap">
-              <div class="verse-body" id="verseBody" contenteditable="true" spellcheck="false"></div>
-              <div class="verse-divider" id="verseDivider" hidden></div>
-              <div class="verse-body verse-body-ml" id="verseBodyML" contenteditable="true" spellcheck="false" hidden></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="log" id="log" aria-live="polite">Ready</div>
-
-        <div class="recent-verses-section" id="recentVersesSection" hidden>
-          <div class="recent-verses-label">Recent</div>
-          <div class="recent-verses-list" id="recentVersesList"></div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- Version display -->
-  <div class="version-display" id="versionDisplay">v1.0.0</div>
-
-  <!-- App script -->
-  <script src="script.js" defer></script>
-</body>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+Malayalam:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

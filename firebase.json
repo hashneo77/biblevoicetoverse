@@ -1,26 +1,26 @@
 {
+  "functions": {
+    "source": "functions"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
   "hosting": {
-    "public": ".",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       ".firebaserc",
       "**/.*",
-      "**/node_modules/**",
-      "remote/src/**",
-      "remote/public/**",
-      "english_bible.json",
-      "malayalam_bible.json",
-      "memory/**",
-      ".claude/**"
+      "**/node_modules/**"
     ],
     "rewrites": [
       {
         "source": "/remote",
-        "destination": "/remote/dist/index.html"
+        "destination": "/remote/index.html"
       },
       {
         "source": "/remote/**",
-        "destination": "/remote/dist/index.html"
+        "destination": "/remote/index.html"
       }
     ]
   }
