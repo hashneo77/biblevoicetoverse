@@ -73,6 +73,11 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
   const [verseRefLabel, setVerseRefLabel] = useState('Jesus Loves You')
   const [fontSize, setFontSize] = useState(44)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // When the remote requests fullscreen we can't call requestFullscreen() directly
+  // (no user gesture on the presentation screen). Instead we show a prompt overlay;
+  // the person at the screen taps it — that tap IS a user gesture — and native
+  // fullscreen fires correctly.
+  const [remoteFullscreenPrompt, setRemoteFullscreenPrompt] = useState(false)
   const [status, setStatus] = useState('Loading…')
   const [cccData, setCccData] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
@@ -156,7 +161,14 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
 
       if (val.fullscreen?.ts > PAGE_LOAD_TIME && val.fullscreen.ts > seen.fullscreenTs) {
         seen.fullscreenTs = val.fullscreen.ts
-        stateRef.current.toggleFullscreen?.()
+        if (stateRef.current.isFullscreen || document.fullscreenElement) {
+          // Already fullscreen — exit directly (exit doesn't need a user gesture)
+          stateRef.current.toggleFullscreen?.()
+        } else {
+          // Not fullscreen — show prompt so the person at the screen can tap it.
+          // That tap becomes the required user gesture for requestFullscreen().
+          setRemoteFullscreenPrompt(true)
+        }
       }
     })
   }, [])
@@ -418,6 +430,24 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
   }
   toggleFullscreenRef.current = toggleFullscreen
 
+  // Auto-dismiss the prompt after 5 s and fall back to CSS overlay so
+  // something happens even if nobody is seated at the presentation screen.
+  useEffect(() => {
+    if (!remoteFullscreenPrompt) return
+    const t = setTimeout(() => {
+      setRemoteFullscreenPrompt(false)
+      setIsFullscreen(true)   // CSS overlay fallback
+    }, 5000)
+    return () => clearTimeout(t)
+  }, [remoteFullscreenPrompt])
+
+  // Called when the user taps the fullscreen prompt — this IS a user gesture,
+  // so requestFullscreen() will be granted by the browser.
+  const handleFullscreenPromptTap = async () => {
+    setRemoteFullscreenPrompt(false)
+    await toggleFullscreen()
+  }
+
   // Sync state when native fullscreen changes (e.g. user presses Escape)
   useEffect(() => {
     const handler = () => {
@@ -651,6 +681,29 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
       }`}>
         v1.0.0
       </span>
+
+      {/* Remote fullscreen prompt — shown when remote requests fullscreen.
+          The user on the presentation screen must tap this; their tap is the
+          user gesture the browser requires before allowing requestFullscreen(). */}
+      {remoteFullscreenPrompt && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Tap to enter fullscreen"
+          onClick={handleFullscreenPromptTap}
+          onKeyDown={e => e.key === 'Enter' && handleFullscreenPromptTap()}
+          className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/40 backdrop-blur-sm cursor-pointer"
+        >
+          <div className="bg-slate-900 border border-white/10 rounded-3xl px-10 py-8 text-center shadow-2xl select-none max-w-xs mx-4">
+            <div className="text-6xl mb-4 text-amber-300">⤢</div>
+            <p className="text-white text-xl font-semibold mb-1">Tap to go fullscreen</p>
+            <p className="text-slate-400 text-sm">Remote control requested fullscreen</p>
+            <div className="mt-4 h-1 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full bg-amber-400/60 animate-[shrink_5s_linear_forwards]" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
