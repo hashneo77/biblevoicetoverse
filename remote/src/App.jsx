@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { ref, set, onValue } from 'firebase/database';
-import { db, DB_URL } from './firebase';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { ref, set } from 'firebase/database';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions, DB_URL } from './firebase';
 import './App.css';
 
 const OT_BOOKS = [
@@ -19,12 +20,14 @@ const NT_BOOKS = [
   '1 John','2 John','3 John','Jude','Revelation',
 ];
 
-async function restFetch(path, shallow = false) {
+const ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
+
+const restFetch = async (path, shallow = false) => {
   const qs = shallow ? '?shallow=true' : '';
   const res = await fetch(`${DB_URL}/${path}.json${qs}`);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   return res.json();
-}
+};
 
 export default function App() {
   const [allBooks, setAllBooks] = useState([]);
@@ -44,26 +47,26 @@ export default function App() {
   // CCC navigation
   const CCC_TOTAL = 2865;
   const CCC_RANGE_SIZE = 100;
-  const cccRanges = Array.from(
+  const cccRanges = useMemo(() => Array.from(
     { length: Math.ceil(CCC_TOTAL / CCC_RANGE_SIZE) },
     (_, i) => ({ start: i * CCC_RANGE_SIZE + 1, end: Math.min((i + 1) * CCC_RANGE_SIZE, CCC_TOTAL) })
-  );
+  ), []);
   const [selectedCccRange, setSelectedCccRange] = useState(null);
 
   const [sent, setSent] = useState(null);
   const [error, setError] = useState(null);
 
-  // Settings state (mirrors what's active on the main display)
   const [language, setLanguage] = useState('EN');
   const [theme, setTheme] = useState('light');
 
-  // AI keyword search
+  // AI search — calls searchVerses Cloud Function directly (same as the web app)
+  const searchVersesCallable = useMemo(() => httpsCallable(functions, 'searchVerses'), []);
   const [searchView, setSearchView] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResults, setSearchResults] = useState(null);
-  const pendingSearchTs = useRef(null);
 
+  // ── Book loading ──────────────────────────────────────────────────────────
   const loadBooks = useCallback(async () => {
     setBooksLoading(true);
     setError(null);
@@ -87,64 +90,89 @@ export default function App() {
 
   useEffect(() => { loadBooks(); }, [loadBooks]);
 
-  // Listen for search results written back by the main display app
-  useEffect(() => {
-    const unsub = onValue(ref(db, 'remote/searchResults'), snap => {
-      const val = snap.val();
-      if (!val || val.ts !== pendingSearchTs.current) return;
-      setSearchResults(val.results || []);
-      setSearchLoading(false);
-    });
-    return unsub;
-  }, []);
-
-  async function submitSearch() {
+  // ── AI Search ─────────────────────────────────────────────────────────────
+  // Calls searchVerses directly — same Cloud Function the web app uses.
+  // No Firebase relay, no TF-IDF prefilter — full AI quality + CCC support.
+  const submitSearch = async () => {
     const q = searchQuery.trim();
     if (!q) return;
-    const ts = Date.now();
-    pendingSearchTs.current = ts;
+
+    const wantsCCC = /\bccc\b/i.test(q);
     setSearchLoading(true);
     setSearchResults(null);
+
     try {
-      await set(ref(db, 'remote/searchQuery'), { q, ts });
+      const result = await searchVersesCallable({
+        query: q,
+        bookNames: ALL_BOOKS,
+        includeCCC: wantsCCC,
+      });
+
+      const refs = result.data?.refs || [];
+
+      // Fetch the actual text for each result in parallel (REST, no auth needed)
+      const enriched = await Promise.all(refs.map(async r => {
+        if (r.type === 'ccc') {
+          let text = '';
+          try { text = String(await restFetch(`ccc/${r.paragraph}`) ?? ''); } catch { /* offline */ }
+          return { type: 'ccc', ref: `CCC #${r.paragraph}`, paragraph: r.paragraph, text, reason: r.reason };
+        }
+        // Bible verse
+        const key = nameToKey[r.book];
+        let text = '';
+        if (key) {
+          try {
+            const val = await restFetch(`english/${key}/chapters/ch${r.chapter}/${r.verse}`);
+            text = typeof val === 'string' ? val : '';
+          } catch { /* offline */ }
+        }
+        return {
+          type: 'bible',
+          ref: `${r.book} ${r.chapter}:${r.verse}`,
+          book: r.book, chapter: Number(r.chapter), verse: Number(r.verse),
+          text, reason: r.reason,
+        };
+      }));
+
+      setSearchResults(enriched.filter(Boolean));
     } catch (e) {
-      setError('Search failed: ' + e.message);
+      setError('Search failed: ' + (e?.message || String(e)));
+    } finally {
       setSearchLoading(false);
     }
-  }
+  };
 
-  async function sendSearchResult(result) {
-    const match = result.ref.match(/^(.+)\s+(\d+):(\d+)$/);
-    if (!match) return;
+  // Project a search result onto the presentation screen
+  const sendSearchResult = async (result) => {
     try {
-      await set(ref(db, 'remote/currentVerse'), {
-        book: match[1],
-        chapter: Number(match[2]),
-        verse: Number(match[3]),
-        timestamp: Date.now(),
-      });
+      if (result.type === 'ccc') {
+        await set(ref(db, 'remote/cccParagraph'), { paragraph: result.paragraph, ts: Date.now() });
+      } else {
+        await set(ref(db, 'remote/currentVerse'), {
+          book: result.book, chapter: result.chapter, verse: result.verse,
+          timestamp: Date.now(),
+        });
+      }
       setSent(result.ref);
       setTimeout(() => setSent(null), 2000);
     } catch (e) {
       setError('Send failed: ' + e.message);
     }
-  }
+  };
 
-  function getBooksForTestament(t) {
+  // ── Bible navigation ──────────────────────────────────────────────────────
+  const getBooksForTestament = (t) => {
     const order = t === 'OT' ? OT_BOOKS : NT_BOOKS;
     const nameSet = new Set(allBooks.map(b => b.name));
     return order
       .filter(name => nameSet.has(name))
       .map(name => allBooks.find(b => b.name === name))
       .filter(Boolean);
-  }
+  };
 
-  function selectTestament(t) {
-    setTestament(t);
-    setView('books');
-  }
+  const selectTestament = (t) => { setTestament(t); setView('books'); };
 
-  async function selectBook(name) {
+  const selectBook = async (name) => {
     const key = nameToKey[name];
     setSelectedBook(name);
     setSelectedBookKey(key);
@@ -158,14 +186,11 @@ export default function App() {
         .map(k => k.replace(/^ch/, ''))
         .sort((a, b) => +a - +b);
       setChapters(chs);
-    } catch (e) {
-      setError('Could not load chapters: ' + e.message);
-    } finally {
-      setChaptersLoading(false);
-    }
-  }
+    } catch (e) { setError('Could not load chapters: ' + e.message); }
+    finally { setChaptersLoading(false); }
+  };
 
-  async function selectChapter(ch) {
+  const selectChapter = async (ch) => {
     setSelectedChapter(ch);
     setVerses([]);
     setView('verses');
@@ -174,98 +199,76 @@ export default function App() {
     try {
       const vData = await restFetch(`english/${selectedBookKey}/chapters/ch${ch}`, true);
       const vs = Object.keys(vData || {})
-        .map(Number)
-        .filter(n => !isNaN(n))
-        .sort((a, b) => a - b);
+        .map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
       setVerses(vs);
-    } catch (e) {
-      setError('Could not load verses: ' + e.message);
-    } finally {
-      setVersesLoading(false);
-    }
-  }
+    } catch (e) { setError('Could not load verses: ' + e.message); }
+    finally { setVersesLoading(false); }
+  };
 
-  async function sendVerse(verse) {
+  const sendVerse = async (verse) => {
     const label = `${selectedBook} ${selectedChapter}:${verse}`;
     try {
       await set(ref(db, 'remote/currentVerse'), {
-        book: selectedBook,
-        chapter: Number(selectedChapter),
-        verse: Number(verse),
+        book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse),
         timestamp: Date.now(),
       });
       setSent(label);
       setTimeout(() => setSent(null), 2000);
-    } catch (e) {
-      setError('Send failed: ' + e.message);
-    }
-  }
+    } catch (e) { setError('Send failed: ' + e.message); }
+  };
 
-  async function sendSetting(path, value) {
-    try {
-      await set(ref(db, `remote/settings/${path}`), value);
-    } catch (e) {
-      setError('Setting failed: ' + e.message);
-    }
-  }
+  // ── Remote settings ───────────────────────────────────────────────────────
+  const sendSetting = async (path, value) => {
+    try { await set(ref(db, `remote/settings/${path}`), value); }
+    catch (e) { setError('Setting failed: ' + e.message); }
+  };
 
-  function toggleLanguage() {
+  const toggleLanguage = () => {
     const next = language === 'EN' ? 'ML' : 'EN';
     setLanguage(next);
     sendSetting('language', next);
-  }
+  };
 
-  function toggleTheme() {
+  const toggleTheme = () => {
     const next = theme === 'light' ? 'dark' : 'light';
     setTheme(next);
     sendSetting('theme', next);
-  }
+  };
 
-  function sendFontSize(delta) {
-    sendSetting('fontSizeCmd', { delta, ts: Date.now() });
-  }
+  const sendFontSize = (delta) => sendSetting('fontSizeCmd', { delta, ts: Date.now() });
+  const sendNav = (dir) => sendSetting('nav', { dir, ts: Date.now() });
 
-  function sendNav(dir) {
-    sendSetting('nav', { dir, ts: Date.now() });
-  }
-
-  async function sendCccParagraph(num) {
+  const sendCccParagraph = async (num) => {
     try {
       await set(ref(db, 'remote/cccParagraph'), { paragraph: num, ts: Date.now() });
       setSent(`CCC #${num}`);
       setTimeout(() => setSent(null), 2000);
-    } catch (e) {
-      setError('Send failed: ' + e.message);
-    }
-  }
+    } catch (e) { setError('Send failed: ' + e.message); }
+  };
 
-  function goBack() {
+  // ── Navigation ────────────────────────────────────────────────────────────
+  const goBack = () => {
     if (searchView) { setSearchView(false); setSearchResults(null); setSearchQuery(''); return; }
     if (view === 'ccc-paragraphs') { setView('ccc-ranges'); setSelectedCccRange(null); return; }
     if (view === 'ccc-ranges')     { setView('testament'); return; }
-    if (view === 'verses')        setView('chapters');
-    else if (view === 'chapters') setView('books');
-    else if (view === 'books')    setView('testament');
-  }
+    if (view === 'verses')         { setView('chapters'); return; }
+    if (view === 'chapters')       { setView('books'); return; }
+    if (view === 'books')          { setView('testament'); }
+  };
 
-  function goHome() {
-    setView('testament');
-    setTestament(null);
-    setSelectedBook(null);
-    setSelectedBookKey(null);
-    setSelectedChapter(null);
-    setChapters([]);
-    setVerses([]);
-    setSelectedCccRange(null);
-  }
+  const goHome = () => {
+    setView('testament'); setTestament(null); setSelectedBook(null);
+    setSelectedBookKey(null); setSelectedChapter(null);
+    setChapters([]); setVerses([]); setSelectedCccRange(null);
+  };
 
   const headerTitle =
-    searchView               ? 'AI Search' :
-    view === 'testament'     ? 'Bible Remote' :
-    view === 'ccc-ranges'    ? 'Catechism (CCC)' :
+    searchView                ? 'AI Search' :
+    view === 'testament'      ? 'Bible Remote' :
+    view === 'ccc-ranges'     ? 'Catechism (CCC)' :
     view === 'ccc-paragraphs' ? `CCC #${selectedCccRange?.start}–${selectedCccRange?.end}` :
-    view === 'books'         ? (testament === 'OT' ? 'Old Testament' : 'New Testament') :
-    view === 'chapters'      ? selectedBook :
+    view === 'books'          ? (testament === 'OT' ? 'Old Testament' : 'New Testament') :
+    view === 'chapters'       ? selectedBook :
     `${selectedBook} · Ch ${selectedChapter}`;
 
   return (
@@ -296,7 +299,11 @@ export default function App() {
         <button className="settings-btn icon-only" onClick={() => sendNav('next')} aria-label="Next verse">
           <ChevronRight small />
         </button>
-        <button className="settings-btn icon-only" onClick={() => sendSetting('fullscreen', { ts: Date.now() })} aria-label="Toggle fullscreen">
+        <button
+          className="settings-btn icon-only"
+          onClick={() => sendSetting('fullscreen', { ts: Date.now() })}
+          aria-label="Toggle fullscreen"
+        >
           <FullscreenIcon />
         </button>
         <div className="settings-divider" />
@@ -323,14 +330,14 @@ export default function App() {
           </div>
         )}
 
-        {/* AI keyword search view */}
+        {/* ── AI Search view ── */}
         {searchView && (
           <div className="search-view">
             <div className="search-input-row">
               <input
                 className="search-input"
                 type="text"
-                placeholder="e.g. forgiveness, hope, love…"
+                placeholder="e.g. forgiveness, hope, CCC grace…"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && submitSearch()}
@@ -345,9 +352,7 @@ export default function App() {
               </button>
             </div>
 
-            {searchLoading && (
-              <p className="search-status">Searching with AI…</p>
-            )}
+            {searchLoading && <p className="search-status">Searching with AI…</p>}
 
             {searchResults !== null && searchResults.length === 0 && (
               <p className="search-status">No results found. Try different keywords.</p>
@@ -357,9 +362,14 @@ export default function App() {
               <ul className="search-results">
                 {searchResults.map((r, i) => (
                   <li key={i}>
-                    <button className="search-result-btn" onClick={() => sendSearchResult(r)}>
-                      <span className="result-ref">{r.ref}</span>
-                      <span className="result-text">{r.text}</span>
+                    <button
+                      className={`search-result-btn${r.type === 'ccc' ? ' search-result-ccc' : ''}`}
+                      onClick={() => sendSearchResult(r)}
+                    >
+                      <span className={`result-ref${r.type === 'ccc' ? ' result-ref-ccc' : ''}`}>
+                        {r.ref}
+                      </span>
+                      {r.text && <span className="result-text">{r.text}</span>}
                       {r.reason && <span className="result-reason">{r.reason}</span>}
                     </button>
                   </li>
@@ -369,6 +379,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Home picker ── */}
         {!searchView && view === 'testament' && (
           booksLoading
             ? <CenterSpinner />
@@ -381,10 +392,7 @@ export default function App() {
                   <span className="testament-label">New Testament</span>
                   <span className="testament-count">{getBooksForTestament('NT').length} books</span>
                 </button>
-                <button
-                  className="testament-btn ccc-testament-btn"
-                  onClick={() => setView('ccc-ranges')}
-                >
+                <button className="testament-btn ccc-testament-btn" onClick={() => setView('ccc-ranges')}>
                   <span className="testament-label" style={{ fontFamily: 'serif' }}>CCC</span>
                   <span className="testament-count">2865 paragraphs</span>
                 </button>
@@ -399,6 +407,7 @@ export default function App() {
               </div>
         )}
 
+        {/* ── CCC range picker ── */}
         {!searchView && view === 'ccc-ranges' && (
           <div className="num-grid">
             {cccRanges.map(r => (
@@ -413,9 +422,13 @@ export default function App() {
           </div>
         )}
 
+        {/* ── CCC paragraph picker ── */}
         {!searchView && view === 'ccc-paragraphs' && selectedCccRange && (
           <div className="num-grid">
-            {Array.from({ length: selectedCccRange.end - selectedCccRange.start + 1 }, (_, i) => selectedCccRange.start + i).map(n => (
+            {Array.from(
+              { length: selectedCccRange.end - selectedCccRange.start + 1 },
+              (_, i) => selectedCccRange.start + i
+            ).map(n => (
               <button key={n} className="num-btn ccc-para-btn" onClick={() => sendCccParagraph(n)}>
                 {n}
               </button>
@@ -423,6 +436,7 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Book list ── */}
         {!searchView && view === 'books' && (
           <ul className="book-list">
             {getBooksForTestament(testament).map(b => (
@@ -436,26 +450,24 @@ export default function App() {
           </ul>
         )}
 
+        {/* ── Chapter picker ── */}
         {!searchView && view === 'chapters' && (
           chaptersLoading
             ? <CenterSpinner />
             : <div className="num-grid">
                 {chapters.map(ch => (
-                  <button key={ch} className="num-btn" onClick={() => selectChapter(ch)}>
-                    {ch}
-                  </button>
+                  <button key={ch} className="num-btn" onClick={() => selectChapter(ch)}>{ch}</button>
                 ))}
               </div>
         )}
 
+        {/* ── Verse picker ── */}
         {!searchView && view === 'verses' && (
           versesLoading
             ? <CenterSpinner />
             : <div className="num-grid">
                 {verses.map(v => (
-                  <button key={v} className="num-btn verse-num" onClick={() => sendVerse(v)}>
-                    {v}
-                  </button>
+                  <button key={v} className="num-btn verse-num" onClick={() => sendVerse(v)}>{v}</button>
                 ))}
               </div>
         )}
@@ -470,6 +482,7 @@ export default function App() {
   );
 }
 
+// ── Icons ─────────────────────────────────────────────────────────────────
 function CenterSpinner() {
   return <div className="center-spinner"><div className="spinner" /></div>;
 }
@@ -478,8 +491,7 @@ function ChevronLeft({ small } = {}) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>;
 }
 function ChevronRight({ small } = {}) {
-  const s = small ? 16 : 16;
-  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>;
 }
 function HomeIcon() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>;

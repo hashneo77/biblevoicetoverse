@@ -18,7 +18,6 @@ export function Header({
   onSelectVerse,
   onAiSearch,
   aiLoading,
-  onSignOut,
 }) {
   // Compact base — tighter on mobile, roomier on sm+
   const btnBase = `
@@ -116,17 +115,6 @@ export function Header({
           />
         </div>
 
-        {/* Sign out */}
-        <button
-          onClick={onSignOut}
-          className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all duration-150 whitespace-nowrap ${
-            isDark
-              ? 'border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20 hover:bg-white/5'
-              : 'border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-          }`}
-        >
-          Sign out
-        </button>
       </div>
 
       {/* ── Mobile-only: search on its own full-width row ── */}

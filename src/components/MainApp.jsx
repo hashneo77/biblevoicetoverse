@@ -63,7 +63,7 @@ function lookupVerse(store, book, ch, v) {
   return { text: data[key]?.[String(ch)]?.[String(v)] ?? null, resolvedBook: key }
 }
 
-export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
+export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   const [displayMode, setDisplayMode] = useState('EN')
   const [bibleEN, setBibleEN] = useState(null)
   const [bibleML, setBibleML] = useState(null)
@@ -547,7 +547,6 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
           onSelectVerse={handleSelectVerse}
           onAiSearch={handleAiSearch}
           aiLoading={aiLoading}
-          onSignOut={onSignOut}
         />
 
         {/* AI search results panel */}
