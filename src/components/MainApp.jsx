@@ -74,7 +74,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
   const [fontSize, setFontSize] = useState(44)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [status, setStatus] = useState('Loading…')
-  const [cccData, setCccData] = useState(null) // { "1": "text", ... }
+  const [cccData, setCccData] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResults, setAiResults] = useState(null) // null=hidden, array=visible
   const [recentVerses, setRecentVerses] = useState(() => {
@@ -84,7 +84,11 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
   const verseStageRef = useRef(null)
   // Always-current ref pattern for stable callbacks
   const stateRef = useRef({})
-  stateRef.current = { displayMode, bibleEN, bibleML, cccData, currentRef, isDark, onSetTheme, toggleFullscreen: () => toggleFullscreenRef.current?.() }
+  stateRef.current = {
+    displayMode, bibleEN, bibleML, cccData, currentRef, isDark, isFullscreen,
+    onSetTheme,
+    toggleFullscreen: () => toggleFullscreenRef.current?.(),
+  }
 
   // Load book aliases
   useEffect(() => {
@@ -96,7 +100,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
 
   // Load Bible data from Firebase
   useEffect(() => {
-    async function load() {
+    const load = async () => {
       setStatus('Loading Bible data…')
       const [en, ml] = await Promise.all([
         fetchBibleFromFirebase('english'),
@@ -111,18 +115,17 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
 
   // Listen for remote verse selections
   useEffect(() => {
-    const unsub = onValue(dbRef(db, 'remote/currentVerse'), snap => {
+    return onValue(dbRef(db, 'remote/currentVerse'), snap => {
       const val = snap.val()
       if (!val?.book || !val?.timestamp || val.timestamp < PAGE_LOAD_TIME) return
       showVerseRef.current({ book: val.book, chapter: val.chapter, verse: val.verse })
     })
-    return unsub
   }, [])
 
-  // Listen for remote settings (language, theme, font size, nav)
+  // Listen for remote settings (language, theme, font size, nav, fullscreen)
   useEffect(() => {
-    const seen = { fontSizeTs: 0, navTs: 0 }
-    const unsub = onValue(dbRef(db, 'remote/settings'), snap => {
+    const seen = { fontSizeTs: 0, navTs: 0, fullscreenTs: 0 }
+    return onValue(dbRef(db, 'remote/settings'), snap => {
       const val = snap.val()
       if (!val) return
       const { displayMode: dm, isDark: dark, onSetTheme: setTheme } = stateRef.current
@@ -151,37 +154,20 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
         }
       }
 
-      if (val.fullscreen?.ts > PAGE_LOAD_TIME && val.fullscreen.ts > (seen.fullscreenTs || 0)) {
+      if (val.fullscreen?.ts > PAGE_LOAD_TIME && val.fullscreen.ts > seen.fullscreenTs) {
         seen.fullscreenTs = val.fullscreen.ts
         stateRef.current.toggleFullscreen?.()
       }
     })
-    return unsub
   }, [])
 
-  // Listen for remote CCC paragraph selections — display in verse stage
+  // Listen for remote CCC paragraph selections
   useEffect(() => {
-    const unsub = onValue(dbRef(db, 'remote/cccParagraph'), async snap => {
+    return onValue(dbRef(db, 'remote/cccParagraph'), async snap => {
       const val = snap.val()
       if (!val?.paragraph || !val?.ts || val.ts < PAGE_LOAD_TIME) return
-      let ccc = stateRef.current.cccData
-      if (!ccc) {
-        try {
-          const snap2 = await get(dbRef(db, 'ccc'))
-          ccc = snap2.val()
-          if (ccc) setCccData(ccc)
-        } catch { return }
-      }
-      const text = ccc?.[String(val.paragraph)]
-      if (text) {
-        const label = `CCC #${val.paragraph}`
-        setVerseRefLabel(label)
-        setVerseText(text)
-        setCurrentRef(null)
-        saveRecent({ ccc: val.paragraph }, label)
-      }
+      await handleSelectCCCRef.current(val.paragraph)
     })
-    return unsub
   }, [])
 
   // Show initial verse once English data loads
@@ -193,7 +179,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
     }
   }, [bibleEN])
 
-  function saveRecent(refObj, label) {
+  const saveRecent = (refObj, label) => {
     setRecentVerses(prev => {
       const filtered = prev.filter(r => r.key !== label)
       const next = [{ key: label, ref: refObj }, ...filtered].slice(0, 10)
@@ -212,15 +198,12 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
       const label = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`
       setVerseRefLabel(label)
       setVerseText(text)
-      // Keep original English book name in currentRef so navigation + API fallback always use English
       setCurrentRef(parsed)
       setStatus(label)
       if (addToRecent) saveRecent(parsed, label)
       return
     }
 
-    // Only fall back to remote API when using English mode with an English book name
-    // (avoid sending Malayalam script to bible-api.com)
     if (dm === 'ML') {
       setStatus(`Verse not found: ${parsed.book} ${parsed.chapter}:${parsed.verse}`)
       return
@@ -244,13 +227,47 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
     }
   }, [])
 
-  // Stable ref so effects always have latest showVerse
   const showVerseRef = useRef(showVerse)
   showVerseRef.current = showVerse
 
+  // Load and display a CCC paragraph
+  const handleSelectCCC = useCallback(async (paragraphNum) => {
+    let ccc = stateRef.current.cccData
+    if (!ccc) {
+      try {
+        const snap = await get(dbRef(db, 'ccc'))
+        ccc = snap.val()
+        if (ccc) setCccData(ccc)
+      } catch {
+        setStatus('Could not load catechism data')
+        return
+      }
+    }
+    const text = ccc?.[String(paragraphNum)]
+    if (text) {
+      const label = `CCC #${paragraphNum}`
+      setVerseRefLabel(label)
+      setVerseText(text)
+      setCurrentRef(null)
+      saveRecent({ ccc: paragraphNum }, label)
+      setStatus(label)
+    } else {
+      setStatus(`CCC #${paragraphNum} not found`)
+    }
+  }, [])
+
+  const handleSelectCCCRef = useRef(handleSelectCCC)
+  handleSelectCCCRef.current = handleSelectCCC
+
+  // Unified verse/CCC select handler (used by search + recent)
+  const handleSelectVerse = useCallback((parsed) => {
+    if (parsed?.ccc) handleSelectCCCRef.current(parsed.ccc)
+    else showVerseRef.current(parsed)
+  }, [])
+
   // Save verse edit to Firebase (debounced)
   const saveEditTimerRef = useRef(null)
-  function handleVerseEdit(newText) {
+  const handleVerseEdit = (newText) => {
     setVerseText(newText)
     const { currentRef: cr, displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     if (!cr) return
@@ -278,19 +295,18 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
   // AI semantic search
   const searchVersesCallable = useMemo(() => httpsCallable(functions, 'searchVerses'), [])
 
-  async function handleAiSearch(query) {
+  const handleAiSearch = async (query) => {
     const { bibleEN: en, bibleML: ml } = stateRef.current
     if (!en) { setStatus('Bible data not ready yet — try again in a moment'); return }
 
     const wantsCCC = /\bccc\b/i.test(query)
 
-    // Lazy-load CCC data the first time a CCC query is made
     if (wantsCCC && !stateRef.current.cccData) {
       try {
         const snap = await get(dbRef(db, 'ccc'))
         const val = snap.val()
         if (val) setCccData(val)
-      } catch { /* ignore — CCC text just won't show */ }
+      } catch { /* ignore */ }
     }
 
     setAiLoading(true)
@@ -306,6 +322,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
           return {
             type: 'ccc',
             ref: `CCC #${r.paragraph}`,
+            paragraph: r.paragraph,   // kept for click handler
             text,
             textML: '',
             reason: r.reason,
@@ -328,15 +345,15 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
       setAiResults(results.length > 0 ? results : [])
     } catch (e) {
       const msg = e?.message || String(e)
-      setAiResults([{ ref: 'Search Error', text: msg, reason: 'Please try again.', parsed: null }])
+      setAiResults([{ ref: 'Search Error', text: msg, reason: 'Please try again.', parsed: null, type: 'error' }])
     } finally {
       setAiLoading(false)
     }
   }
 
-  // Relay remote search queries: remote writes searchQuery, main app runs search and writes back results
+  // Relay remote search queries
   useEffect(() => {
-    const unsub = onValue(dbRef(db, 'remote/searchQuery'), async snap => {
+    return onValue(dbRef(db, 'remote/searchQuery'), async snap => {
       const val = snap.val()
       if (!val?.q || !val?.ts || val.ts < PAGE_LOAD_TIME) return
       const { bibleEN: en } = stateRef.current
@@ -353,42 +370,66 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
         await set(dbRef(db, 'remote/searchResults'), { ts: val.ts, results: [] })
       }
     })
-    return unsub
   }, [searchVersesCallable])
 
-  // Navigation — never adds to recent (only explicit searches do)
-  function prevVerse() {
+  // Navigation
+  const prevVerse = () => {
     const cr = stateRef.current.currentRef
     if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false })
   }
-  function nextVerse() {
+  const nextVerse = () => {
     const cr = stateRef.current.currentRef
     if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false })
   }
 
   // Font size
-  function increaseFontSize() { setFontSize(s => Math.min(160, s + Math.max(6, Math.round(s * 0.12)))) }
-  function decreaseFontSize() { setFontSize(s => Math.max(12, s - Math.max(4, Math.round(s * 0.12)))) }
+  const increaseFontSize = () => setFontSize(s => Math.min(160, s + Math.max(6, Math.round(s * 0.12))))
+  const decreaseFontSize = () => setFontSize(s => Math.max(12, s - Math.max(4, Math.round(s * 0.12))))
 
-  // Fullscreen
+  // Fullscreen — tries native API first; falls back to CSS fixed overlay.
+  // CSS fallback is essential for:
+  //   • iOS Safari (no native Fullscreen API)
+  //   • Remote-control triggers (no user-gesture, so native API is denied)
   const toggleFullscreenRef = useRef(null)
-  async function toggleFullscreen() {
+  const toggleFullscreen = async () => {
+    const inNativeFs = !!document.fullscreenElement
+    const { isFullscreen: inCssFs } = stateRef.current
+
+    // Exit paths
+    if (inNativeFs) {
+      try { await document.exitFullscreen() } catch { /* ignore */ }
+      return
+    }
+    if (inCssFs) {
+      setIsFullscreen(false)
+      return
+    }
+
+    // Enter — try native, fall back to CSS
     try {
-      if (!document.fullscreenElement) {
-        await verseStageRef.current?.requestFullscreen?.()
-        setIsFullscreen(true)
-      } else {
-        await document.exitFullscreen?.()
-        setIsFullscreen(false)
-      }
-    } catch { /* fullscreen not available */ }
+      const el = verseStageRef.current
+      if (!el || !document.fullscreenEnabled) throw new Error('no native fullscreen')
+      await el.requestFullscreen()
+      // fullscreenchange event will set isFullscreen=true
+    } catch {
+      // No user gesture, not supported (iOS), or other error → CSS fullscreen
+      setIsFullscreen(true)
+    }
   }
   toggleFullscreenRef.current = toggleFullscreen
 
+  // Sync state when native fullscreen changes (e.g. user presses Escape)
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    const handler = () => {
+      if (!document.fullscreenElement) setIsFullscreen(false)
+      else setIsFullscreen(true)
+    }
     document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
+    document.addEventListener('webkitfullscreenchange', handler)
+    return () => {
+      document.removeEventListener('fullscreenchange', handler)
+      document.removeEventListener('webkitfullscreenchange', handler)
+    }
   }, [])
 
   // Speech recognition
@@ -404,7 +445,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
 
   // Keyboard shortcuts
   useEffect(() => {
-    function onKey(ev) {
+    const onKey = (ev) => {
       const active = document.activeElement
       const typing = active && (
         active.tagName === 'INPUT' ||
@@ -413,8 +454,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
       )
       if (typing) return
       switch (ev.key) {
-        case 'ArrowLeft':  ev.preventDefault(); prevVerse(); break  // prevVerse already skips recent
-        case 'ArrowRight': ev.preventDefault(); nextVerse(); break  // nextVerse already skips recent
+        case 'ArrowLeft':  ev.preventDefault(); prevVerse(); break
+        case 'ArrowRight': ev.preventDefault(); nextVerse(); break
         case 'f': case 'F': ev.preventDefault(); toggleFullscreen(); break
         case 'm': case 'M': ev.preventDefault(); toggleSpeech(); break
         case 'e': case 'E':
@@ -427,7 +468,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [toggleSpeech])
 
-  // bibleMeta for search (computed from English data — always search in English)
+  // bibleMeta for search
   const bibleMeta = useMemo(() => {
     const meta = { maxChapter: new Map(), maxVerse: new Map() }
     const d = bibleEN?.data
@@ -457,7 +498,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
         ? 'bg-gradient-to-b from-slate-950 to-slate-900 text-slate-100'
         : 'bg-slate-50 text-slate-900'
     }`}>
-      <div className="max-w-5xl mx-auto px-4 pt-4 pb-10">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-3 sm:pt-4 pb-8">
         <Header
           isDark={isDark}
           isListening={isListening}
@@ -473,7 +514,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
           onToggleFullscreen={toggleFullscreen}
           bookAliases={bookAliases}
           bibleMeta={bibleMeta}
-          onSelectVerse={parsed => showVerseRef.current(parsed)}
+          onSelectVerse={handleSelectVerse}
           onAiSearch={handleAiSearch}
           aiLoading={aiLoading}
           onSignOut={onSignOut}
@@ -484,6 +525,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
           <div className={`mt-2 rounded-2xl border overflow-hidden ${
             isDark ? 'bg-slate-900/80 border-white/[0.08]' : 'bg-white border-slate-200'
           }`}>
+            {/* Panel header */}
             <div className={`flex items-center justify-between px-4 py-2.5 border-b ${
               isDark ? 'border-white/[0.06]' : 'border-slate-100'
             }`}>
@@ -494,50 +536,71 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
               </span>
               <button
                 onClick={() => setAiResults(null)}
-                className={`text-xs px-2 py-0.5 rounded-lg transition-colors ${
+                className={`text-xs px-2.5 py-1 rounded-lg transition-colors ${
                   isDark ? 'text-slate-500 hover:text-slate-300 hover:bg-white/5' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
                 }`}
               >
                 ✕ Close
               </button>
             </div>
+
             {aiResults.length === 0 ? (
-              <p className={`px-4 py-4 text-sm text-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`px-4 py-5 text-sm text-center ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 No matching verses found.
               </p>
             ) : (
-              aiResults.map((r, i) => (
-                <button
-                  key={i}
-                  onClick={() => { if (r.type === 'bible' && r.parsed) { showVerseRef.current(r.parsed); setAiResults(null) } }}
-                  className={`w-full text-left px-3 py-2 flex flex-col gap-0 transition-colors border-b last:border-b-0 ${
-                    isDark
-                      ? 'border-white/[0.04] hover:bg-white/[0.04]'
-                      : 'border-slate-100 hover:bg-slate-50'
-                  } ${r.parsed === null && r.type === 'ccc' ? 'cursor-default' : ''}`}
-                >
-                  <span className={`text-xs font-semibold ${
-                    r.type === 'ccc'
-                      ? isDark ? 'text-sky-400' : 'text-sky-600'
-                      : isDark ? 'text-amber-300' : 'text-amber-600'
-                  }`}>
-                    {r.ref}
-                  </span>
-                  <span className={`text-[11px] leading-snug line-clamp-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                    {r.text}
-                  </span>
-                  {r.textML && (
-                    <span className={`text-[11px] leading-snug line-clamp-1 font-[Noto_Serif_Malayalam,serif] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {r.textML}
+              <div className="max-h-80 overflow-y-auto suggestions-scroll">
+                {aiResults.map((r, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (r.type === 'bible' && r.parsed) {
+                        showVerseRef.current(r.parsed)
+                        setAiResults(null)
+                      } else if (r.type === 'ccc' && r.paragraph) {
+                        // Project CCC text onto the verse stage
+                        setVerseRefLabel(r.ref)
+                        setVerseText(r.text)
+                        setCurrentRef(null)
+                        saveRecent({ ccc: r.paragraph }, r.ref)
+                        setStatus(r.ref)
+                        setAiResults(null)
+                      }
+                    }}
+                    className={`w-full text-left px-4 py-3 flex flex-col gap-0.5 transition-colors border-b last:border-b-0 ${
+                      isDark
+                        ? 'border-white/[0.04] hover:bg-white/[0.04] active:bg-white/[0.07]'
+                        : 'border-slate-100 hover:bg-slate-50 active:bg-slate-100'
+                    } ${r.type === 'error' ? 'cursor-default' : 'cursor-pointer'}`}
+                  >
+                    <span className={`text-xs font-semibold ${
+                      r.type === 'ccc'
+                        ? isDark ? 'text-sky-400' : 'text-sky-600'
+                        : r.type === 'error'
+                        ? isDark ? 'text-red-400' : 'text-red-600'
+                        : isDark ? 'text-amber-300' : 'text-amber-600'
+                    }`}>
+                      {r.ref}
+                      {(r.type === 'bible' || r.type === 'ccc') && (
+                        <span className={`ml-1.5 text-[9px] font-normal opacity-50`}>tap to project</span>
+                      )}
                     </span>
-                  )}
-                  {r.reason && (
-                    <span className={`text-[10px] italic ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-                      {r.reason}
+                    <span className={`text-[11px] leading-snug line-clamp-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      {r.text}
                     </span>
-                  )}
-                </button>
-              ))
+                    {r.textML && (
+                      <span className={`text-[11px] leading-snug line-clamp-1 font-[Noto_Serif_Malayalam,serif] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {r.textML}
+                      </span>
+                    )}
+                    {r.reason && (
+                      <span className={`text-[10px] italic mt-0.5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+                        {r.reason}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -569,16 +632,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, onSignOut }) {
           verses={recentVerses}
           onSelect={async ref => {
             if (ref?.ccc) {
-              let ccc = stateRef.current.cccData
-              if (!ccc) {
-                try {
-                  const snap = await get(dbRef(db, 'ccc'))
-                  ccc = snap.val()
-                  if (ccc) setCccData(ccc)
-                } catch { return }
-              }
-              const text = ccc?.[String(ref.ccc)]
-              if (text) { setVerseRefLabel(`CCC #${ref.ccc}`); setVerseText(text); setCurrentRef(null) }
+              await handleSelectCCCRef.current(ref.ccc)
             } else {
               showVerseRef.current(ref)
             }

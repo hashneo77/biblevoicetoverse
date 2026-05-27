@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { getSearchSuggestions } from '../utils/parseReference'
+import { getSearchSuggestions, getCCCSuggestions } from '../utils/parseReference'
 
 export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoading, isDark }) {
   const [query, setQuery] = useState('')
@@ -14,24 +14,31 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
     return Object.keys(aliases).length > 0 ? [...new Set(Object.values(aliases))] : []
   }, [bookAliases])
 
-  const suggestions = useMemo(
-    () => (aiMode ? [] : getSearchSuggestions(query, books, bibleMeta)),
-    [query, books, bibleMeta, aiMode],
-  )
+  const isCCCQuery = useMemo(() => query.trim().toLowerCase().startsWith('ccc'), [query])
+
+  const suggestions = useMemo(() => {
+    if (aiMode || !query) return []
+    if (isCCCQuery) return getCCCSuggestions(query)
+    return getSearchSuggestions(query, books, bibleMeta)
+  }, [query, books, bibleMeta, aiMode, isCCCQuery])
 
   useEffect(() => {
     setOpen(!aiMode && suggestions.length > 0 && query.length > 0)
     setActiveIdx(0)
   }, [suggestions, query, aiMode])
 
-  function handleSelect(parsed) {
-    onSelect(parsed)
+  const handleSelect = (s) => {
+    if (s.ccc) {
+      onSelect({ ccc: s.ccc })
+    } else if (s.parsed) {
+      onSelect(s.parsed)
+    }
     setQuery('')
     setOpen(false)
     inputRef.current?.blur()
   }
 
-  function handleKeyDown(e) {
+  const handleKeyDown = (e) => {
     if (aiMode) {
       if (e.key === 'Enter' && query.trim()) {
         e.preventDefault()
@@ -47,7 +54,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
       e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (suggestions[activeIdx]) handleSelect(suggestions[activeIdx].parsed)
+      if (suggestions[activeIdx]) handleSelect(suggestions[activeIdx])
     } else if (e.key === 'Tab') {
       if (suggestions[activeIdx]) { e.preventDefault(); setQuery(suggestions[activeIdx].ref + ' ') }
     } else if (e.key === 'Escape') {
@@ -55,7 +62,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
     }
   }
 
-  function toggleAiMode() {
+  const toggleAiMode = () => {
     setAiMode(m => !m)
     setQuery('')
     setOpen(false)
@@ -67,8 +74,8 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
     : isDark ? 'focus-within:border-amber-400/60 focus-within:ring-amber-400/20' : 'focus-within:border-amber-400 focus-within:ring-amber-400/30'
 
   return (
-    <div className="relative">
-      <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all duration-150 focus-within:ring-1 ${
+    <div className="relative w-full">
+      <div className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all duration-150 focus-within:ring-1 w-full ${
         isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-slate-300'
       } ${ringColor}`}>
         {/* Search icon */}
@@ -81,10 +88,10 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
           onKeyDown={handleKeyDown}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onFocus={() => { if (!aiMode && suggestions.length > 0) setOpen(true) }}
-          placeholder={aiMode ? 'Search by meaning…' : 'John 3:16…'}
+          placeholder={aiMode ? 'Search by meaning…' : isCCCQuery ? 'CCC #15…' : 'John 3:16 or CCC 15…'}
           autoComplete="off"
           spellCheck={false}
-          className={`w-36 sm:w-52 bg-transparent text-sm outline-none placeholder:text-slate-400 ${
+          className={`flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-slate-400 ${
             isDark ? 'text-slate-100' : 'text-slate-900'
           }`}
         />
@@ -115,25 +122,29 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
         </button>
       </div>
 
-      {/* Normal autocomplete dropdown */}
+      {/* Autocomplete dropdown */}
       {open && (
         <div
           ref={listRef}
-          className={`absolute top-full mt-1.5 left-0 right-0 z-50 rounded-xl border shadow-2xl overflow-hidden max-h-72 overflow-y-auto ${
+          className={`absolute top-full mt-1.5 left-0 right-0 z-50 rounded-xl border shadow-2xl overflow-hidden max-h-72 overflow-y-auto suggestions-scroll ${
             isDark ? 'bg-slate-900 border-slate-700/60 shadow-black/60' : 'bg-white border-slate-200 shadow-slate-200/80'
           }`}
         >
           {suggestions.slice(0, 15).map((s, i) => (
             <button
               key={s.ref}
-              onMouseDown={() => handleSelect(s.parsed)}
+              onMouseDown={() => handleSelect(s)}
               className={`w-full text-left px-4 py-2.5 flex items-baseline gap-2 transition-colors ${
                 i === activeIdx
                   ? isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700'
                   : isDark ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <span className="font-medium text-sm">{s.ref}</span>
+              <span className={`font-medium text-sm ${
+                s.ccc
+                  ? isDark ? 'text-sky-300' : 'text-sky-600'
+                  : ''
+              }`}>{s.ref}</span>
               <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{s.preview}</span>
             </button>
           ))}

@@ -53,6 +53,37 @@ export function parseReference(text, bookAliases = {}) {
   return null
 }
 
+const CCC_MAX = 2865
+
+export function getCCCSuggestions(query) {
+  if (!query) return []
+  const q = query.trim().toLowerCase()
+  if (!q.startsWith('ccc')) return []
+
+  // Strip everything after "ccc" — spaces, #, colon
+  const rest = q.slice(3).replace(/^[\s#:]+/, '')
+
+  if (!rest) {
+    // Just "ccc" typed — show first few paragraphs as starters
+    return [1, 2, 3, 4, 5].map(n => ({
+      ref: `CCC #${n}`,
+      preview: '(catechism)',
+      parsed: null,
+      ccc: n,
+    }))
+  }
+
+  if (!/^\d+$/.test(rest)) return []
+
+  const num = parseInt(rest, 10)
+  if (num < 1 || num > CCC_MAX) return []
+
+  // Show exact match and a few neighbors
+  return Array.from({ length: 5 }, (_, i) => num + i)
+    .filter(n => n <= CCC_MAX)
+    .map(n => ({ ref: `CCC #${n}`, preview: '(catechism)', parsed: null, ccc: n }))
+}
+
 export function getSearchSuggestions(query, books, bibleMeta) {
   if (!query) return []
   const q = query.trim()
@@ -76,11 +107,9 @@ export function getSearchSuggestions(query, books, bibleMeta) {
     const bl = book.toLowerCase()
     if (qLower.startsWith(bl)) {
       const nextChar = qLower.charAt(bl.length)
-      if (!nextChar || /\s/.test(nextChar)) {
-        if (!resolvedBook || bl.length > resolvedBook.toLowerCase().length) {
-          resolvedBook = book
-          remainder = q.slice(book.length).trim()
-        }
+      if ((!nextChar || /\s/.test(nextChar)) && (!resolvedBook || bl.length > resolvedBook.toLowerCase().length)) {
+        resolvedBook = book
+        remainder = q.slice(book.length).trim()
       }
     }
   }

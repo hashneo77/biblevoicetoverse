@@ -20,8 +20,11 @@ export function Header({
   aiLoading,
   onSignOut,
 }) {
+  // Compact base — tighter on mobile, roomier on sm+
   const btnBase = `
-    inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium
+    inline-flex items-center justify-center rounded-xl
+    px-2 py-2 sm:px-3 sm:py-2
+    text-xs sm:text-sm font-medium
     transition-all duration-150 select-none
   `
   const ghostBtn = `${btnBase} ${
@@ -43,57 +46,91 @@ export function Header({
   }`
 
   return (
-    <header className={`sticky top-0 z-40 px-3 py-2.5 rounded-2xl border mb-2 backdrop-blur-md flex flex-wrap items-center gap-2 ${
+    <header className={`sticky top-0 z-40 px-3 py-2 rounded-2xl border mb-2 backdrop-blur-md ${
       isDark
         ? 'bg-slate-900/85 border-white/[0.07]'
         : 'bg-white/90 border-slate-200/80 shadow-sm'
     }`}>
+      {/* ── Controls row ── */}
+      <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
 
-      {/* Mic / Start-Stop */}
-      <button onClick={onToggleSpeech} disabled={!speechSupported} className={recBtn} title={isListening ? 'Stop (M)' : 'Start voice (M)'}>
-        <MicIcon active={isListening} />
-        <span className="ml-1.5 hidden sm:inline">{isListening ? 'Stop' : 'Start'}</span>
-      </button>
+        {/* Mic */}
+        <button
+          onClick={onToggleSpeech}
+          disabled={!speechSupported}
+          className={recBtn}
+          title={isListening ? 'Stop (M)' : 'Start voice (M)'}
+        >
+          <MicIcon active={isListening} />
+          <span className="ml-1 hidden sm:inline">{isListening ? 'Stop' : 'Start'}</span>
+        </button>
 
-      {/* Prev / Next */}
-      <button onClick={onPrev} className={ghostBtn} title="Previous verse (←)">◀</button>
-      <button onClick={onNext} className={ghostBtn} title="Next verse (→)">▶</button>
+        {/* Prev / Next */}
+        <button onClick={onPrev} className={ghostBtn} title="Previous verse (←)">◀</button>
+        <button onClick={onNext} className={ghostBtn} title="Next verse (→)">▶</button>
 
-      {/* Language mode selector */}
-      <div className={`flex rounded-xl border overflow-hidden ${isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-100/60'}`}>
-        {['EN', 'ML'].map(mode => (
-          <button
-            key={mode}
-            onClick={() => onSetMode(mode)}
-            className={`px-3 py-1.5 text-xs font-bold transition-colors duration-150 ${
-              displayMode === mode
-                ? isDark
-                  ? 'bg-white/12 text-amber-300'
-                  : 'bg-white text-amber-600 shadow-sm'
-                : isDark
-                ? 'text-slate-400 hover:text-slate-200'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {mode}
-          </button>
-        ))}
+        {/* Language mode selector */}
+        <div className={`flex rounded-xl border overflow-hidden ${
+          isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-100/60'
+        }`}>
+          {['EN', 'ML'].map(mode => (
+            <button
+              key={mode}
+              onClick={() => onSetMode(mode)}
+              className={`px-2.5 py-1.5 text-xs font-bold transition-colors duration-150 ${
+                displayMode === mode
+                  ? isDark
+                    ? 'bg-white/12 text-amber-300'
+                    : 'bg-white text-amber-600 shadow-sm'
+                  : isDark
+                  ? 'text-slate-400 hover:text-slate-200'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+
+        {/* Font size */}
+        <button onClick={onDecreaseFontSize} className={ghostBtn} title="Decrease font (A-)">A<sup>−</sup></button>
+        <button onClick={onIncreaseFontSize} className={primaryBtn} title="Increase font (A+)">A<sup>+</sup></button>
+
+        {/* Fullscreen */}
+        <button onClick={onToggleFullscreen} className={ghostBtn} title="Fullscreen (F)">⤢</button>
+
+        {/* Theme toggle */}
+        <button onClick={onToggleTheme} className={ghostBtn} title="Toggle theme">
+          {isDark ? '☀️' : '🌙'}
+        </button>
+
+        {/* ── sm+: search lives here, pushed right ── */}
+        <div className="hidden sm:flex flex-1 min-w-0 justify-end">
+          <SearchBox
+            bookAliases={bookAliases}
+            bibleMeta={bibleMeta}
+            onSelect={onSelectVerse}
+            onAiSearch={onAiSearch}
+            aiLoading={aiLoading}
+            isDark={isDark}
+          />
+        </div>
+
+        {/* Sign out */}
+        <button
+          onClick={onSignOut}
+          className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all duration-150 whitespace-nowrap ${
+            isDark
+              ? 'border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20 hover:bg-white/5'
+              : 'border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+          }`}
+        >
+          Sign out
+        </button>
       </div>
 
-      {/* Font size */}
-      <button onClick={onDecreaseFontSize} className={ghostBtn} title="Decrease font (A-)">A<sup>−</sup></button>
-      <button onClick={onIncreaseFontSize} className={primaryBtn} title="Increase font (A+)">A<sup>+</sup></button>
-
-      {/* Fullscreen */}
-      <button onClick={onToggleFullscreen} className={ghostBtn} title="Fullscreen (F)">⤢</button>
-
-      {/* Theme toggle */}
-      <button onClick={onToggleTheme} className={ghostBtn} title="Toggle theme">
-        {isDark ? '☀️' : '🌙'}
-      </button>
-
-      {/* Search — pushed right on wider screens */}
-      <div className="flex-1 flex justify-end min-w-0">
+      {/* ── Mobile-only: search on its own full-width row ── */}
+      <div className="mt-2 sm:hidden">
         <SearchBox
           bookAliases={bookAliases}
           bibleMeta={bibleMeta}
@@ -103,18 +140,6 @@ export function Header({
           isDark={isDark}
         />
       </div>
-
-      {/* Sign out */}
-      <button
-        onClick={onSignOut}
-        className={`text-xs px-3 py-1.5 rounded-lg border transition-all duration-150 ${
-          isDark
-            ? 'border-white/10 text-slate-400 hover:text-slate-200 hover:border-white/20 hover:bg-white/5'
-            : 'border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-        }`}
-      >
-        Sign out
-      </button>
     </header>
   )
 }
