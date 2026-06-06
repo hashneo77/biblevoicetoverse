@@ -200,6 +200,11 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     })
   }
 
+  const clearRecent = () => {
+    localStorage.removeItem(RECENT_KEY)
+    setRecentVerses([])
+  }
+
   const showVerse = useCallback(async (parsed, { addToRecent = true } = {}) => {
     if (!parsed) return
     const { displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
@@ -659,6 +664,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
         <RecentVerses
           isDark={isDark}
           verses={recentVerses}
+          onClear={clearRecent}
           onSelect={async ref => {
             if (ref?.ccc) {
               await handleSelectCCCRef.current(ref.ccc)
