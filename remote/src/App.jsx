@@ -22,6 +22,87 @@ const NT_BOOKS = [
 
 const ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
 
+// Malayalam book names, keyed by the exact English names used above.
+// NOTE: the Malayalam Bible in Firebase uses the same b1..b73 key scheme as the
+// English Bible, but the books are stored in a different order/count — so the
+// keys do NOT line up across languages (e.g. malayalam/b69 is "1 John", while
+// english/b69 is "Tobit"). A static name-keyed map avoids that mismatch entirely.
+const BOOK_NAME_ML = {
+  'Genesis': 'ഉല്പത്തി',
+  'Exodus': 'പുറപ്പാടു്',
+  'Leviticus': 'ലേവ്യ',
+  'Numbers': 'സംഖ്യ',
+  'Deuteronomy': 'നിയമവാർത്തനം',
+  'Joshua': 'ജോഷ്വാ',
+  'Judges': 'ന്യായാധിപന്മാർ',
+  'Ruth': 'റൂത്ത്',
+  '1 Samuel': '1 സാമുവേൽ',
+  '2 Samuel': '2 സാമുവേൽ',
+  '1 Kings': '1 രാജാക്കന്മാർ',
+  '2 Kings': '2 രാജാക്കന്മാർ',
+  '1 Chronicles': '1 ദിനവൃത്താന്തം',
+  '2 Chronicles': '2 ദിനവൃത്താന്തം',
+  'Ezra': 'എസ്രാ',
+  'Nehemiah': 'നെഹമിയ',
+  'Tobit': 'തോബിത്ത്',
+  'Judith': 'യൂദിത്ത്',
+  'Esther': 'എസ്തേർ',
+  '1 Maccabees': '1 മക്കബായർ',
+  '2 Maccabees': '2 മക്കബായർ',
+  'Job': 'ജോബ്',
+  'Psalms': 'സങ്കീർത്തനങ്ങൾ',
+  'Proverbs': 'സുഭാഷിതങ്ങൾ',
+  'Ecclesiastes': 'സഭാപ്രസംഗകൻ',
+  'Song of Songs': 'ഉത്തമഗീതം',
+  'Wisdom': 'ജ്ഞാനം',
+  'Sirach': 'പ്രഭാഷകൻ',
+  'Isaiah': 'ഏശയ്യാ',
+  'Jeremiah': 'ജെറെമിയ',
+  'Lamentations': 'വിലാപങ്ങൾ',
+  'Baruch': 'ബാറൂക്ക്',
+  'Ezekiel': 'എസെക്കിയേല്‍',
+  'Daniel': 'ദാനിയേൽ',
+  'Hosea': 'ഹോസിയാ',
+  'Joel': 'ജോയേൽ',
+  'Amos': 'ആമോസ്',
+  'Obadiah': 'ഓബദിയ',
+  'Jonah': 'യോനാ',
+  'Micah': 'മിക്കാ',
+  'Nahum': 'നാഹും',
+  'Habakkuk': 'ഹബക്കുക്ക്',
+  'Zephaniah': 'സെഫാനിയ',
+  'Haggai': 'ഹഗ്ഗായി',
+  'Zechariah': 'സഖറിയാ',
+  'Malachi': 'മലാക്കി',
+  'Matthew': 'മത്തായി',
+  'Mark': 'മർക്കോസ്',
+  'Luke': 'ലൂക്കാ',
+  'John': 'യോഹന്നാൻ',
+  'Acts': 'അപ്പൊസ്തലന്മാരുടെ പ്രവർത്തനങ്ങൾ',
+  'Romans': 'റോമാക്കാർക്ക്',
+  '1 Corinthians': '1 കോറിന്തോസുകാർക്ക്',
+  '2 Corinthians': '2 കോറിന്തോസുകാർക്ക്',
+  'Galatians': 'ഗലാത്തിയാക്കാർക്ക്',
+  'Ephesians': 'എഫേസോസുകാർക്ക്',
+  'Philippians': 'ഫിലിപ്പിയർക്ക്',
+  'Colossians': 'കൊളോസ്സുകാർക്ക്',
+  '1 Thessalonians': '1 തെസ്സലോനിക്കാക്കാർക്ക്',
+  '2 Thessalonians': '2 തെസ്സലോനിക്കാക്കാർക്ക്',
+  '1 Timothy': '1 തിമോത്തേയോസിന്',
+  '2 Timothy': '2 തിമോത്തേയോസിന്',
+  'Titus': 'തീത്തോസിന്',
+  'Philemon': 'ഫിലേമോന്',
+  'Hebrews': 'ഹെബ്രായർക്ക്',
+  'James': 'യാക്കോബ്',
+  '1 Peter': '1 പത്രോസ്',
+  '2 Peter': '2 പത്രോസ്',
+  '1 John': '1 യോഹന്നാൻ',
+  '2 John': '2 യോഹന്നാൻ',
+  '3 John': '3 യോഹന്നാൻ',
+  'Jude': 'യൂദാ',
+  'Revelation': 'വെളിപാട്',
+};
+
 const restFetch = async (path, shallow = false) => {
   const qs = shallow ? '?shallow=true' : '';
   const res = await fetch(`${DB_URL}/${path}.json${qs}`);
@@ -87,13 +168,10 @@ export default function App() {
     try {
       const bookKeys = await restFetch('english', true);
       const keys = Object.keys(bookKeys || {});
-      const [names, namesML] = await Promise.all([
-        Promise.all(keys.map(k => restFetch(`english/${k}/name`))),
-        Promise.all(keys.map(k => restFetch(`malayalam/${k}/name`).catch(() => null))),
-      ]);
+      const names = await Promise.all(keys.map(k => restFetch(`english/${k}/name`)));
       const map = {};
       const list = keys
-        .map((k, i) => ({ key: k, name: names[i], nameML: typeof namesML[i] === 'string' ? namesML[i] : '' }))
+        .map((k, i) => ({ key: k, name: names[i], nameML: BOOK_NAME_ML[names[i]] || '' }))
         .filter(b => typeof b.name === 'string');
       list.forEach(b => { map[b.name] = b.key; });
       setNameToKey(map);
