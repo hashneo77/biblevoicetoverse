@@ -223,32 +223,18 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   // Build copy-to-clipboard text for a set of recent entries, including both
   // English and Malayalam verse text (so a copied passage is bilingual).
   const buildRecentCopyText = (items) => {
-    const { bibleEN: en, bibleML: ml, cccData: ccc } = stateRef.current
+    const { bibleML: ml } = stateRef.current
     return items.map(item => {
-      if (item.ref?.ccc) {
-        const text = ccc?.[String(item.ref.ccc)] || ''
-        return text ? `${item.key}\nEN: ${text}` : item.key
-      }
+      if (item.ref?.ccc) return item.key
       const { book, chapter, verse, endVerse } = item.ref || {}
       if (!book || !chapter || !verse) return item.key
-      const last = endVerse || verse
-      const enParts = []
-      const mlParts = []
-      for (let v = verse; v <= last; v++) {
-        if (en) {
-          const { text } = lookupVerse(en, book, chapter, v)
-          if (text) enParts.push(text)
-        }
-        if (ml) {
-          const { text } = lookupVerse(ml, book, chapter, v)
-          if (text) mlParts.push(text)
-        }
+      let mlRef = ''
+      if (ml) {
+        const { resolvedBook: mlBook } = lookupVerse(ml, book, chapter, verse)
+        if (mlBook) mlRef = endVerse ? `${mlBook} ${chapter}:${verse}-${endVerse}` : `${mlBook} ${chapter}:${verse}`
       }
-      let block = item.key
-      if (enParts.length) block += `\nEN: ${enParts.join(' ')}`
-      if (mlParts.length) block += `\nML: ${mlParts.join(' ')}`
-      return block
-    }).join('\n\n')
+      return mlRef ? `${item.key} / ${mlRef}` : item.key
+    }).join('\n')
   }
 
   // Tracks a contiguous run of verses visited via prev/next so they collapse
