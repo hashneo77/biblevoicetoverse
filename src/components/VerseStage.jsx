@@ -69,10 +69,10 @@ export const VerseStage = forwardRef(function VerseStage(
       <div className="w-full">
         {/* Reference label */}
         <div
-          className={`font-verse font-bold underline underline-offset-4 mb-4 sm:mb-5 tracking-wide ${
-            isDark ? 'text-amber-300' : 'text-blue-600'
+          className={`font-verse font-extrabold underline underline-offset-4 mb-4 sm:mb-5 tracking-wide ${
+            isDark ? 'text-amber-300' : 'text-blue-800'
           }`}
-          style={{ fontSize: Math.max(16, fontSize * 0.52) + 'px' }}
+          style={{ fontSize: Math.max(16, fontSize * 0.62) + 'px' }}
         >
           {verseRef}
         </div>
@@ -85,7 +85,7 @@ export const VerseStage = forwardRef(function VerseStage(
           spellCheck={false}
           onInput={e => onVerseEdit(e.currentTarget.innerText)}
           className={`
-            leading-relaxed outline-none cursor-text rounded px-1
+            leading-relaxed outline-none cursor-text rounded px-1 font-bold
             ${isMalayalam ? 'font-malayalam' : 'font-verse'}
             ${isDark ? 'text-slate-100' : 'text-slate-800'}
           `}
