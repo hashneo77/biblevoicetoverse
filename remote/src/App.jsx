@@ -242,13 +242,13 @@ export default function App() {
     try {
       if (result.type === 'ccc') {
         await set(ref(db, 'remote/cccParagraph'), { paragraph: result.paragraph, ts: Date.now() });
-        pushRecentSent({ key: result.ref, type: 'ccc', paragraph: result.paragraph });
+        pushRecentSent({ key: result.ref, type: 'ccc', paragraph: result.paragraph, text: result.text || '' });
       } else {
         await set(ref(db, 'remote/currentVerse'), {
           book: result.book, chapter: result.chapter, verse: result.verse,
           timestamp: Date.now(),
         });
-        pushRecentSent({ key: result.ref, type: 'bible', book: result.book, chapter: result.chapter, verse: result.verse });
+        pushRecentSent({ key: result.ref, type: 'bible', book: result.book, chapter: result.chapter, verse: result.verse, text: result.text || '' });
       }
       setSent(result.ref);
       setTimeout(() => setSent(null), 2000);
@@ -309,7 +309,12 @@ export default function App() {
         book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse),
         timestamp: Date.now(),
       });
-      pushRecentSent({ key: label, type: 'bible', book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse) });
+      let text = '';
+      try {
+        const val = await restFetch(`english/${selectedBookKey}/chapters/ch${selectedChapter}/${verse}`);
+        text = typeof val === 'string' ? val : '';
+      } catch { /* offline */ }
+      pushRecentSent({ key: label, type: 'bible', book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse), text });
       setSent(label);
       setTimeout(() => setSent(null), 2000);
     } catch (e) { setError('Send failed: ' + e.message); }
@@ -340,7 +345,9 @@ export default function App() {
     const label = `CCC #${num}`;
     try {
       await set(ref(db, 'remote/cccParagraph'), { paragraph: num, ts: Date.now() });
-      pushRecentSent({ key: label, type: 'ccc', paragraph: num });
+      let text = '';
+      try { text = String(await restFetch(`ccc/${num}`) ?? ''); } catch { /* offline */ }
+      pushRecentSent({ key: label, type: 'ccc', paragraph: num, text });
       setSent(label);
       setTimeout(() => setSent(null), 2000);
     } catch (e) { setError('Send failed: ' + e.message); }
@@ -504,6 +511,13 @@ export default function App() {
                   <span className="testament-label" style={{ fontFamily: 'serif' }}>CCC</span>
                   <span className="testament-count">2865 paragraphs</span>
                 </button>
+                <button className="testament-btn recent-testament-btn" onClick={() => setView('recent')}>
+                  <ClockIcon />
+                  <span className="testament-label">Recent</span>
+                  <span className="testament-count">
+                    {recentSent.length > 0 ? `${recentSent.length} sent this session` : 'Nothing sent yet'}
+                  </span>
+                </button>
                 <button
                   className="testament-btn search-testament-btn"
                   onClick={() => { setSearchView(true); setSearchResults(null); setSearchQuery(''); }}
@@ -511,13 +525,6 @@ export default function App() {
                   <SearchSparkleIcon />
                   <span className="testament-label">AI Search</span>
                   <span className="testament-count">Find by meaning</span>
-                </button>
-                <button className="testament-btn recent-testament-btn" onClick={() => setView('recent')}>
-                  <ClockIcon />
-                  <span className="testament-label">Recent</span>
-                  <span className="testament-count">
-                    {recentSent.length > 0 ? `${recentSent.length} sent this session` : 'Nothing sent yet'}
-                  </span>
                 </button>
               </div>
         )}
@@ -534,6 +541,7 @@ export default function App() {
                       onClick={() => resendRecent(r)}
                     >
                       <span className={`result-ref${r.type === 'ccc' ? ' result-ref-ccc' : ''}`}>{r.key}</span>
+                      {r.text && <span className="result-text">{r.text}</span>}
                       <span className="result-reason">tap to send again</span>
                     </button>
                   </li>

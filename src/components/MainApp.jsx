@@ -152,10 +152,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
         seen.navTs = val.nav.ts
         if (val.nav.dir === 'prev') {
           const cr = stateRef.current.currentRef
-          if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false })
+          if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
         } else {
           const cr = stateRef.current.currentRef
-          if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false })
+          if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
         }
       }
 
@@ -187,7 +187,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   useEffect(() => {
     if (bibleEN && !initialVerseShown.current) {
       initialVerseShown.current = true
-      showVerseRef.current({ book: 'Genesis', chapter: 1, verse: 1 })
+      showVerseRef.current({ book: 'Genesis', chapter: 1, verse: 1 }, { addToRecent: false })
     }
   }, [bibleEN])
 
@@ -205,7 +205,43 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     setRecentVerses([])
   }
 
-  const showVerse = useCallback(async (parsed, { addToRecent = true } = {}) => {
+  // Tracks a contiguous run of verses visited via prev/next so they collapse
+  // into a single "Book Ch:start-end" entry instead of one per verse.
+  const navRangeRef = useRef(null)
+
+  const updateNavRange = (book, chapter, verse) => {
+    const range = navRangeRef.current
+    let start = verse
+    let end = verse
+    let oldKey = null
+
+    if (range && range.book === book && range.chapter === chapter) {
+      if (verse === range.end + 1) {
+        start = range.start
+        end = verse
+        oldKey = range.key
+      } else if (verse === range.start - 1) {
+        start = verse
+        end = range.end
+        oldKey = range.key
+      } else if (verse >= range.start && verse <= range.end) {
+        // Still inside the tracked range — nothing to change
+        return
+      }
+    }
+
+    const label = start === end ? `${book} ${chapter}:${start}` : `${book} ${chapter}:${start}-${end}`
+    const refObj = { book, chapter, verse: start }
+    navRangeRef.current = { book, chapter, start, end, key: label }
+    setRecentVerses(prev => {
+      const filtered = prev.filter(r => r.key !== label && r.key !== oldKey)
+      const next = [{ key: label, ref: refObj, ts: Date.now() }, ...filtered].slice(0, 100)
+      localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+
+  const showVerse = useCallback(async (parsed, { addToRecent = true, rangeNav = false } = {}) => {
     if (!parsed) return
     const { displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     const store = dm === 'ML' ? ml : en
@@ -217,7 +253,12 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setVerseText(text)
       setCurrentRef(parsed)
       setStatus(label)
-      if (addToRecent) saveRecent(parsed, label)
+      if (addToRecent) {
+        saveRecent(parsed, label)
+        navRangeRef.current = { book: resolvedBook, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: label }
+      } else if (rangeNav) {
+        updateNavRange(resolvedBook, parsed.chapter, parsed.verse)
+      }
       return
     }
 
@@ -392,11 +433,11 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   // Navigation
   const prevVerse = () => {
     const cr = stateRef.current.currentRef
-    if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false })
+    if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
   }
   const nextVerse = () => {
     const cr = stateRef.current.currentRef
-    if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false })
+    if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
   }
 
   // Font size
