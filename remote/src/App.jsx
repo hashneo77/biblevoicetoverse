@@ -56,6 +56,20 @@ export default function App() {
   const [sent, setSent] = useState(null);
   const [error, setError] = useState(null);
 
+  // Recently sent items — viewable & re-sendable from the 'recent' view
+  const RECENT_SENT_KEY = 'bv_remote_recent_sent';
+  const [recentSent, setRecentSent] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(RECENT_SENT_KEY) || '[]'); } catch { return []; }
+  });
+  const pushRecentSent = (item) => {
+    setRecentSent(prev => {
+      const filtered = prev.filter(r => r.key !== item.key);
+      const next = [{ ...item, ts: Date.now() }, ...filtered].slice(0, 50);
+      localStorage.setItem(RECENT_SENT_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const [language, setLanguage] = useState('EN');
   const [theme, setTheme] = useState('light');
 
@@ -73,10 +87,13 @@ export default function App() {
     try {
       const bookKeys = await restFetch('english', true);
       const keys = Object.keys(bookKeys || {});
-      const names = await Promise.all(keys.map(k => restFetch(`english/${k}/name`)));
+      const [names, namesML] = await Promise.all([
+        Promise.all(keys.map(k => restFetch(`english/${k}/name`))),
+        Promise.all(keys.map(k => restFetch(`malayalam/${k}/name`).catch(() => null))),
+      ]);
       const map = {};
       const list = keys
-        .map((k, i) => ({ key: k, name: names[i] }))
+        .map((k, i) => ({ key: k, name: names[i], nameML: typeof namesML[i] === 'string' ? namesML[i] : '' }))
         .filter(b => typeof b.name === 'string');
       list.forEach(b => { map[b.name] = b.key; });
       setNameToKey(map);
@@ -147,11 +164,13 @@ export default function App() {
     try {
       if (result.type === 'ccc') {
         await set(ref(db, 'remote/cccParagraph'), { paragraph: result.paragraph, ts: Date.now() });
+        pushRecentSent({ key: result.ref, type: 'ccc', paragraph: result.paragraph });
       } else {
         await set(ref(db, 'remote/currentVerse'), {
           book: result.book, chapter: result.chapter, verse: result.verse,
           timestamp: Date.now(),
         });
+        pushRecentSent({ key: result.ref, type: 'bible', book: result.book, chapter: result.chapter, verse: result.verse });
       }
       setSent(result.ref);
       setTimeout(() => setSent(null), 2000);
@@ -212,6 +231,7 @@ export default function App() {
         book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse),
         timestamp: Date.now(),
       });
+      pushRecentSent({ key: label, type: 'bible', book: selectedBook, chapter: Number(selectedChapter), verse: Number(verse) });
       setSent(label);
       setTimeout(() => setSent(null), 2000);
     } catch (e) { setError('Send failed: ' + e.message); }
@@ -239,16 +259,25 @@ export default function App() {
   const sendNav = (dir) => sendSetting('nav', { dir, ts: Date.now() });
 
   const sendCccParagraph = async (num) => {
+    const label = `CCC #${num}`;
     try {
       await set(ref(db, 'remote/cccParagraph'), { paragraph: num, ts: Date.now() });
-      setSent(`CCC #${num}`);
+      pushRecentSent({ key: label, type: 'ccc', paragraph: num });
+      setSent(label);
       setTimeout(() => setSent(null), 2000);
     } catch (e) { setError('Send failed: ' + e.message); }
+  };
+
+  // Re-send an item from the Recent view
+  const resendRecent = (item) => {
+    if (item.type === 'ccc') sendCccParagraph(item.paragraph);
+    else sendSearchResult({ type: 'bible', ref: item.key, book: item.book, chapter: item.chapter, verse: item.verse });
   };
 
   // ── Navigation ────────────────────────────────────────────────────────────
   const goBack = () => {
     if (searchView) { setSearchView(false); setSearchResults(null); setSearchQuery(''); return; }
+    if (view === 'recent')         { setView('testament'); return; }
     if (view === 'ccc-paragraphs') { setView('ccc-ranges'); setSelectedCccRange(null); return; }
     if (view === 'ccc-ranges')     { setView('testament'); return; }
     if (view === 'verses')         { setView('chapters'); return; }
@@ -264,6 +293,7 @@ export default function App() {
 
   const headerTitle =
     searchView                ? 'AI Search' :
+    view === 'recent'         ? 'Recent' :
     view === 'testament'      ? 'Bible Remote' :
     view === 'ccc-ranges'     ? 'Catechism (CCC)' :
     view === 'ccc-paragraphs' ? `CCC #${selectedCccRange?.start}–${selectedCccRange?.end}` :
@@ -404,7 +434,33 @@ export default function App() {
                   <span className="testament-label">AI Search</span>
                   <span className="testament-count">Find by meaning</span>
                 </button>
+                <button className="testament-btn recent-testament-btn" onClick={() => setView('recent')}>
+                  <ClockIcon />
+                  <span className="testament-label">Recent</span>
+                  <span className="testament-count">
+                    {recentSent.length > 0 ? `${recentSent.length} sent this session` : 'Nothing sent yet'}
+                  </span>
+                </button>
               </div>
+        )}
+
+        {/* ── Recent sent items ── */}
+        {!searchView && view === 'recent' && (
+          recentSent.length === 0
+            ? <p className="search-status">Nothing sent yet this session.</p>
+            : <ul className="search-results">
+                {recentSent.map((r, i) => (
+                  <li key={i}>
+                    <button
+                      className={`search-result-btn${r.type === 'ccc' ? ' search-result-ccc' : ''}`}
+                      onClick={() => resendRecent(r)}
+                    >
+                      <span className={`result-ref${r.type === 'ccc' ? ' result-ref-ccc' : ''}`}>{r.key}</span>
+                      <span className="result-reason">tap to send again</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
         )}
 
         {/* ── CCC range picker ── */}
@@ -442,7 +498,10 @@ export default function App() {
             {getBooksForTestament(testament).map(b => (
               <li key={b.key}>
                 <button className="book-btn" onClick={() => selectBook(b.name)}>
-                  <span>{b.name}</span>
+                  <span className="book-btn-names">
+                    <span className="book-name-en">{b.name}</span>
+                    {b.nameML && <span className="book-name-ml">{b.nameML}</span>}
+                  </span>
                   <ChevronRight />
                 </button>
               </li>
@@ -454,22 +513,28 @@ export default function App() {
         {!searchView && view === 'chapters' && (
           chaptersLoading
             ? <CenterSpinner />
-            : <div className="num-grid">
-                {chapters.map(ch => (
-                  <button key={ch} className="num-btn" onClick={() => selectChapter(ch)}>{ch}</button>
-                ))}
-              </div>
+            : <>
+                <p className="section-heading">Chapters</p>
+                <div className="num-grid">
+                  {chapters.map(ch => (
+                    <button key={ch} className="num-btn" onClick={() => selectChapter(ch)}>{ch}</button>
+                  ))}
+                </div>
+              </>
         )}
 
         {/* ── Verse picker ── */}
         {!searchView && view === 'verses' && (
           versesLoading
             ? <CenterSpinner />
-            : <div className="num-grid">
-                {verses.map(v => (
-                  <button key={v} className="num-btn verse-num" onClick={() => sendVerse(v)}>{v}</button>
-                ))}
-              </div>
+            : <>
+                <p className="section-heading">Verses</p>
+                <div className="num-grid">
+                  {verses.map(v => (
+                    <button key={v} className="num-btn verse-num" onClick={() => sendVerse(v)}>{v}</button>
+                  ))}
+                </div>
+              </>
         )}
       </main>
 
@@ -495,6 +560,9 @@ function ChevronRight({ small } = {}) {
 }
 function HomeIcon() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>;
+}
+function ClockIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>;
 }
 function CheckIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;

@@ -231,6 +231,11 @@ html, body, #root {
 .ccc-testament-btn { border-color: #e0f2fe; }
 .ccc-testament-btn:active { background: #f0f9ff; }
 
+.recent-testament-btn .testament-label { color: #b45309; }
+.recent-testament-btn { border-color: #fde68a; }
+.recent-testament-btn:active { background: #fffbeb; }
+.recent-testament-btn svg { color: #b45309; }
+
 .ccc-range-btn {
   font-size: 11px;
   font-weight: 700;
@@ -273,6 +278,36 @@ html, body, #root {
 .book-btn:active { background: #eef3ff; }
 
 .book-btn svg { color: #0b3d91; opacity: 0.5; flex-shrink: 0; }
+
+.book-btn-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.book-name-en {
+  font-size: 16px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+
+.book-name-ml {
+  font-family: 'Noto Serif Malayalam', serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+/* ── Section heading (Chapters / Verses) ── */
+.section-heading {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 6px 4px 12px;
+}
 
 /* ── Chapter / verse grid ── */
 .num-grid {
@@ -488,6 +523,9 @@ html, body, #root {
   font-weight: 700;
   color: #6d28d9;
 }
+
+.search-result-ccc:active { border-color: #7dd3fc; background: #f0f9ff; }
+.result-ref-ccc { color: #0369a1; }
 
 .result-text {
   font-size: 13px;
