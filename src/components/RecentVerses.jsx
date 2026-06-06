@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export function RecentVerses({ verses, onSelect, onClear, isDark }) {
+export function RecentVerses({ verses, onSelect, onClear, isDark, buildCopyText }) {
   const [copied, setCopied] = useState(false)
   const [confirmingClear, setConfirmingClear] = useState(false)
 
@@ -10,7 +10,7 @@ export function RecentVerses({ verses, onSelect, onClear, isDark }) {
   const todays = verses.filter(item => item.ts && new Date(item.ts).toDateString() === todayLabel)
 
   const copyToday = async () => {
-    const text = todays.map(item => item.key).join('\n')
+    const text = buildCopyText ? buildCopyText(todays) : todays.map(item => item.key).join('\n')
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)

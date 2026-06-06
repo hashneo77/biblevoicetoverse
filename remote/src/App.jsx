@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { ref, set } from 'firebase/database';
+import { ref, set, push, onValue } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions, DB_URL } from './firebase';
 import './App.css';
@@ -137,18 +137,23 @@ export default function App() {
   const [sent, setSent] = useState(null);
   const [error, setError] = useState(null);
 
-  // Recently sent items — viewable & re-sendable from the 'recent' view
-  const RECENT_SENT_KEY = 'bv_remote_recent_sent';
-  const [recentSent, setRecentSent] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(RECENT_SENT_KEY) || '[]'); } catch { return []; }
-  });
-  const pushRecentSent = (item) => {
-    setRecentSent(prev => {
-      const filtered = prev.filter(r => r.key !== item.key);
-      const next = [{ ...item, ts: Date.now() }, ...filtered].slice(0, 50);
-      localStorage.setItem(RECENT_SENT_KEY, JSON.stringify(next));
-      return next;
+  // Recently sent items — synced via Firebase shared with the main webapp
+  const RECENT_ITEMS_PATH = 'remote/recentItems';
+  const [recentSent, setRecentSent] = useState([]);
+
+  useEffect(() => {
+    return onValue(ref(db, RECENT_ITEMS_PATH), snap => {
+      const val = snap.val() || {};
+      const list = Object.entries(val)
+        .map(([fbKey, data]) => ({ ...data, fbKey }))
+        .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+        .slice(0, 100);
+      setRecentSent(list);
     });
+  }, []);
+
+  const pushRecentSent = (item) => {
+    push(ref(db, RECENT_ITEMS_PATH), { ...item, ts: Date.now() });
   };
 
   const [language, setLanguage] = useState('EN');

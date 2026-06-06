@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { ref as dbRef, get, set, onValue } from 'firebase/database'
+import { ref as dbRef, get, set, push, onValue } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase'
 import { parseReference } from '../utils/parseReference'
@@ -9,7 +9,7 @@ import { Header } from './Header'
 import { VerseStage } from './VerseStage'
 import { RecentVerses } from './RecentVerses'
 
-const RECENT_KEY = 'bv_recent_verses'
+const RECENT_ITEMS_PATH = 'remote/recentItems'
 const PAGE_LOAD_TIME = Date.now()
 
 async function fetchBibleFromFirebase(path) {
@@ -82,9 +82,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   const [cccData, setCccData] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResults, setAiResults] = useState(null) // null=hidden, array=visible
-  const [recentVerses, setRecentVerses] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') } catch { return [] }
-  })
+  const [recentVerses, setRecentVerses] = useState([])
 
   const verseStageRef = useRef(null)
   // Always-current ref pattern for stable callbacks
@@ -116,6 +114,25 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setStatus(en ? 'Ready' : 'Could not load Bible data')
     }
     load()
+  }, [])
+
+  // Sync shared recent list from Firebase (written by both webapp and remote)
+  useEffect(() => {
+    return onValue(dbRef(db, RECENT_ITEMS_PATH), snap => {
+      const val = snap.val() || {}
+      const list = Object.entries(val)
+        .map(([fbKey, data]) => ({
+          key: data.key,
+          ref: data.type === 'ccc'
+            ? { ccc: data.paragraph }
+            : { book: data.book, chapter: data.chapter, verse: data.verse, ...(data.endVerse ? { endVerse: data.endVerse } : {}) },
+          ts: data.ts,
+          fbKey,
+        }))
+        .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+        .slice(0, 100)
+      setRecentVerses(list)
+    })
   }, [])
 
   // Listen for remote verse selections
@@ -192,17 +209,46 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   }, [bibleEN])
 
   const saveRecent = (refObj, label) => {
-    setRecentVerses(prev => {
-      const filtered = prev.filter(r => r.key !== label)
-      const next = [{ key: label, ref: refObj, ts: Date.now() }, ...filtered].slice(0, 100)
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next))
-      return next
-    })
+    const data = refObj?.ccc
+      ? { key: label, type: 'ccc', paragraph: refObj.ccc, ts: Date.now() }
+      : { key: label, type: 'bible', book: refObj.book, chapter: refObj.chapter, verse: refObj.verse, ts: Date.now() }
+    const pushRef = push(dbRef(db, RECENT_ITEMS_PATH), data)
+    return pushRef.key
   }
 
   const clearRecent = () => {
-    localStorage.removeItem(RECENT_KEY)
-    setRecentVerses([])
+    set(dbRef(db, RECENT_ITEMS_PATH), null)
+  }
+
+  // Build copy-to-clipboard text for a set of recent entries, including both
+  // English and Malayalam verse text (so a copied passage is bilingual).
+  const buildRecentCopyText = (items) => {
+    const { bibleEN: en, bibleML: ml, cccData: ccc } = stateRef.current
+    return items.map(item => {
+      if (item.ref?.ccc) {
+        const text = ccc?.[String(item.ref.ccc)] || ''
+        return text ? `${item.key}\nEN: ${text}` : item.key
+      }
+      const { book, chapter, verse, endVerse } = item.ref || {}
+      if (!book || !chapter || !verse) return item.key
+      const last = endVerse || verse
+      const enParts = []
+      const mlParts = []
+      for (let v = verse; v <= last; v++) {
+        if (en) {
+          const { text } = lookupVerse(en, book, chapter, v)
+          if (text) enParts.push(text)
+        }
+        if (ml) {
+          const { text } = lookupVerse(ml, book, chapter, v)
+          if (text) mlParts.push(text)
+        }
+      }
+      let block = item.key
+      if (enParts.length) block += `\nEN: ${enParts.join(' ')}`
+      if (mlParts.length) block += `\nML: ${mlParts.join(' ')}`
+      return block
+    }).join('\n\n')
   }
 
   // Tracks a contiguous run of verses visited via prev/next so they collapse
@@ -213,32 +259,31 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     const range = navRangeRef.current
     let start = verse
     let end = verse
-    let oldKey = null
+    let fbKey = null
 
     if (range && range.book === book && range.chapter === chapter) {
       if (verse === range.end + 1) {
-        start = range.start
-        end = verse
-        oldKey = range.key
+        start = range.start; end = verse; fbKey = range.fbKey
       } else if (verse === range.start - 1) {
-        start = verse
-        end = range.end
-        oldKey = range.key
+        start = verse; end = range.end; fbKey = range.fbKey
       } else if (verse >= range.start && verse <= range.end) {
-        // Still inside the tracked range — nothing to change
         return
       }
     }
 
     const label = start === end ? `${book} ${chapter}:${start}` : `${book} ${chapter}:${start}-${end}`
-    const refObj = { book, chapter, verse: start }
-    navRangeRef.current = { book, chapter, start, end, key: label }
-    setRecentVerses(prev => {
-      const filtered = prev.filter(r => r.key !== label && r.key !== oldKey)
-      const next = [{ key: label, ref: refObj, ts: Date.now() }, ...filtered].slice(0, 100)
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next))
-      return next
-    })
+    const data = {
+      key: label, type: 'bible', book, chapter, verse: start, ts: Date.now(),
+      ...(start !== end ? { endVerse: end } : {}),
+    }
+
+    if (fbKey) {
+      set(dbRef(db, `${RECENT_ITEMS_PATH}/${fbKey}`), data)
+      navRangeRef.current = { book, chapter, start, end, key: label, fbKey }
+    } else {
+      const pushRef = push(dbRef(db, RECENT_ITEMS_PATH), data)
+      navRangeRef.current = { book, chapter, start, end, key: label, fbKey: pushRef.key }
+    }
   }
 
   const showVerse = useCallback(async (parsed, { addToRecent = true, rangeNav = false } = {}) => {
@@ -254,8 +299,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setCurrentRef(parsed)
       setStatus(label)
       if (addToRecent) {
-        saveRecent(parsed, label)
-        navRangeRef.current = { book: resolvedBook, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: label }
+        const fbKey = saveRecent(parsed, label)
+        navRangeRef.current = { book: resolvedBook, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: label, fbKey }
       } else if (rangeNav) {
         updateNavRange(resolvedBook, parsed.chapter, parsed.verse)
       }
@@ -279,7 +324,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setVerseText(apiData.text.trim())
       setCurrentRef(parsed)
       setStatus('Loaded from API')
-      if (addToRecent) saveRecent(parsed, apiData.reference)
+      if (addToRecent) {
+        const fbKey = saveRecent(parsed, apiData.reference)
+        navRangeRef.current = { book: parsed.book, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: apiData.reference, fbKey }
+      }
     } catch (e) {
       setStatus('Error: ' + (e.message || e))
     }
@@ -706,6 +754,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
           isDark={isDark}
           verses={recentVerses}
           onClear={clearRecent}
+          buildCopyText={buildRecentCopyText}
           onSelect={async ref => {
             if (ref?.ccc) {
               await handleSelectCCCRef.current(ref.ccc)
