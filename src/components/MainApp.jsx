@@ -194,7 +194,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   const saveRecent = (refObj, label) => {
     setRecentVerses(prev => {
       const filtered = prev.filter(r => r.key !== label)
-      const next = [{ key: label, ref: refObj }, ...filtered].slice(0, 10)
+      const next = [{ key: label, ref: refObj, ts: Date.now() }, ...filtered].slice(0, 100)
       localStorage.setItem(RECENT_KEY, JSON.stringify(next))
       return next
     })

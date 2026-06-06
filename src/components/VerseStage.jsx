@@ -69,7 +69,7 @@ export const VerseStage = forwardRef(function VerseStage(
       <div className="w-full">
         {/* Reference label */}
         <div
-          className={`font-verse font-semibold mb-4 sm:mb-5 tracking-wide ${
+          className={`font-verse font-bold underline underline-offset-4 mb-4 sm:mb-5 tracking-wide ${
             isDark ? 'text-amber-300' : 'text-amber-600'
           }`}
           style={{ fontSize: Math.max(16, fontSize * 0.52) + 'px' }}

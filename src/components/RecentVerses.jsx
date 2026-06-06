@@ -1,11 +1,46 @@
+import { useState } from 'react'
+
 export function RecentVerses({ verses, onSelect, isDark }) {
+  const [copied, setCopied] = useState(false)
+
   if (!verses.length) return null
+
+  const todayLabel = new Date().toDateString()
+  const todays = verses.filter(item => item.ts && new Date(item.ts).toDateString() === todayLabel)
+
+  const copyToday = async () => {
+    const text = todays.map(item => item.key).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* clipboard unavailable */ }
+  }
 
   return (
     <div className="mt-5 px-1">
-      <p className={`text-[10px] font-semibold tracking-widest uppercase mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-        Recent
-      </p>
+      <div className="flex items-center justify-between mb-2">
+        <p className={`text-[10px] font-semibold tracking-widest uppercase ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          Recent
+        </p>
+        {todays.length > 0 && (
+          <button
+            onClick={copyToday}
+            title="Copy today's session verse references to clipboard"
+            className={`text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all duration-150 ${
+              copied
+                ? isDark
+                  ? 'bg-emerald-900/25 text-emerald-300 border-emerald-700/40'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : isDark
+                ? 'text-slate-400 border-white/10 hover:text-amber-300 hover:border-white/20 hover:bg-white/5'
+                : 'text-slate-500 border-slate-200 hover:text-amber-600 hover:border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            {copied ? '✓ Copied' : `Copy today’s session (${todays.length})`}
+          </button>
+        )}
+      </div>
       <div className="flex flex-wrap gap-2">
         {verses.map(item => {
           const isCcc = !!item.ref?.ccc
