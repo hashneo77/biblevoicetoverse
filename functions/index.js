@@ -7,6 +7,58 @@ setGlobalOptions({ region: 'us-central1' });
 
 const geminiKey = defineSecret('GEMINI_API_KEY');
 
+exports.searchSongs = onCall(
+  { secrets: [geminiKey] },
+  async (request) => {
+    const { query, songs } = request.data;
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      throw new HttpsError('invalid-argument', 'query is required');
+    }
+    if (!Array.isArray(songs) || songs.length === 0) {
+      throw new HttpsError('invalid-argument', 'songs list is required');
+    }
+
+    const genAI = new GoogleGenerativeAI(geminiKey.value());
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        thinkingConfig: { thinkingBudget: 0 },
+        maxOutputTokens: 300,
+        temperature: 0,
+      },
+    });
+
+    const songList = songs.map(s => `${s.title} [${s.filename}]`).join('\n');
+
+    const prompt = `You are helping search a library of Malayalam Christian songs.
+
+User query: "${query.trim()}"
+
+The query may be:
+- A song title in English or Manglish (romanized Malayalam)
+- A lyric line in Manglish (e.g. "snehaagniyay padarnnidasane")
+- A description of the song's theme
+
+Songs (format: "Title [filename]"):
+${songList}
+
+Return a JSON array of up to 5 matching filenames (exact filename from brackets), best match first.
+Return [] if nothing matches. Return ONLY the JSON array, no other text.`;
+
+    try {
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text().trim();
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start === -1 || end === -1) return { filenames: [] };
+      const filenames = JSON.parse(raw.slice(start, end + 1));
+      return { filenames: Array.isArray(filenames) ? filenames.slice(0, 5) : [] };
+    } catch (e) {
+      throw new HttpsError('internal', 'Song search failed: ' + e.message);
+    }
+  }
+);
+
 exports.searchVerses = onCall(
   { secrets: [geminiKey], minInstances: 1 },
   async (request) => {
@@ -48,8 +100,10 @@ Return ONLY a JSON array, no markdown, no extra text.`;
     try {
       const result = await model.generateContent(prompt);
       const raw = result.response.text().trim();
-      const json = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-      const parsed = JSON.parse(json);
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start === -1 || end === -1) throw new Error('No JSON array in response');
+      const parsed = JSON.parse(raw.slice(start, end + 1));
       if (!Array.isArray(parsed)) throw new Error('Response was not a JSON array');
       // Normalise older format (no type field) to bible
       const normalised = parsed.slice(0, 7).map(r => ({

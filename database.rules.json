@@ -19,6 +19,10 @@
     "ccc": {
       ".read": true,
       ".write": false
+    },
+    "$session": {
+      ".read": true,
+      ".write": true
     }
   }
 }

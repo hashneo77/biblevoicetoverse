@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { ref as dbRef, get, set, push, onValue } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
-import { db, functions } from '../firebase'
+import { ref as storageRef, uploadString, getBytes } from 'firebase/storage'
+import { db, functions, storage } from '../firebase'
 import { parseReference } from '../utils/parseReference'
 import { tfidfSearch } from '../utils/tfidf'
+import { parseLyrics, serializeLyrics } from '../utils/parseLyrics'
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
 import { Header } from './Header'
 import { VerseStage } from './VerseStage'
 import { RecentVerses } from './RecentVerses'
 
-const RECENT_ITEMS_PATH = 'remote/recentItems'
 const PAGE_LOAD_TIME = Date.now()
 
 async function fetchBibleFromFirebase(path) {
@@ -63,7 +64,10 @@ function lookupVerse(store, book, ch, v) {
   return { text: data[key]?.[String(ch)]?.[String(v)] ?? null, resolvedBook: key }
 }
 
-export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
+export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 'remote' }) {
+  const P = sessionPrefix
+  const RECENT_ITEMS_PATH = `${P}/recentItems`
+
   const [displayMode, setDisplayMode] = useState('EN')
   const [bibleEN, setBibleEN] = useState(null)
   const [bibleML, setBibleML] = useState(null)
@@ -82,7 +86,15 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   const [cccData, setCccData] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResults, setAiResults] = useState(null) // null=hidden, array=visible
+  const [songAiLoading, setSongAiLoading] = useState(false)
   const [recentVerses, setRecentVerses] = useState([])
+  const [songsManifest, setSongsManifest] = useState(null)
+  const [songState, setSongState] = useState(null) // null = Bible/CCC mode; { filename, title, slides, slideIdx }
+  const songCacheRef = useRef({})
+  const [mediaUrl, setMediaUrl] = useState(null) // active media image url
+  const [mediaHtml, setMediaHtml] = useState(null) // active media text html
+  const [bgImageUrl, setBgImageUrl] = useState(null)
+  const [bgImageOpacity, setBgImageOpacity] = useState(0.2)
 
   const verseStageRef = useRef(null)
   // Always-current ref pattern for stable callbacks
@@ -90,6 +102,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   stateRef.current = {
     displayMode, bibleEN, bibleML, cccData, currentRef, isDark, isFullscreen,
     onSetTheme,
+    songState, songsManifest,
     toggleFullscreen: () => toggleFullscreenRef.current?.(),
   }
 
@@ -98,6 +111,14 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     fetch('/book_aliases.json')
       .then(r => r.ok ? r.json() : {})
       .then(setBookAliases)
+      .catch(() => {})
+  }, [])
+
+  // Load songs manifest
+  useEffect(() => {
+    fetch('/songs-manifest.json', { cache: 'no-cache' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setSongsManifest(data) })
       .catch(() => {})
   }, [])
 
@@ -121,6 +142,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     return onValue(dbRef(db, RECENT_ITEMS_PATH), snap => {
       const val = snap.val() || {}
       const list = Object.entries(val)
+        .filter(([, data]) => data.type !== 'song')
         .map(([fbKey, data]) => ({
           key: data.key,
           ref: data.type === 'ccc'
@@ -137,7 +159,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
 
   // Listen for remote verse selections
   useEffect(() => {
-    return onValue(dbRef(db, 'remote/currentVerse'), snap => {
+    return onValue(dbRef(db, `${P}/currentVerse`), snap => {
       const val = snap.val()
       if (!val?.book || !val?.timestamp || val.timestamp < PAGE_LOAD_TIME) return
       showVerseRef.current({ book: val.book, chapter: val.chapter, verse: val.verse })
@@ -147,7 +169,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   // Listen for remote settings (language, theme, font size, nav, fullscreen)
   useEffect(() => {
     const seen = { fontSizeTs: 0, navTs: 0, fullscreenTs: 0 }
-    return onValue(dbRef(db, 'remote/settings'), snap => {
+    return onValue(dbRef(db, `${P}/settings`), snap => {
       const val = snap.val()
       if (!val) return
       const { displayMode: dm, isDark: dark, onSetTheme: setTheme } = stateRef.current
@@ -168,11 +190,19 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       if (val.nav?.ts > PAGE_LOAD_TIME && val.nav.ts > seen.navTs) {
         seen.navTs = val.nav.ts
         if (val.nav.dir === 'prev') {
-          const cr = stateRef.current.currentRef
-          if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
+          const { songState: ss, currentRef: cr } = stateRef.current
+          if (ss) {
+            if (ss.slideIdx > 0) showSongSlideRef.current(ss.filename, ss.slideIdx - 1)
+          } else if (cr?.verse > 1) {
+            showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
+          }
         } else {
-          const cr = stateRef.current.currentRef
-          if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
+          const { songState: ss, currentRef: cr } = stateRef.current
+          if (ss) {
+            if (ss.slideIdx < ss.slides.length - 1) showSongSlideRef.current(ss.filename, ss.slideIdx + 1)
+          } else if (cr) {
+            showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
+          }
         }
       }
 
@@ -192,10 +222,75 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
 
   // Listen for remote CCC paragraph selections
   useEffect(() => {
-    return onValue(dbRef(db, 'remote/cccParagraph'), async snap => {
+    return onValue(dbRef(db, `${P}/cccParagraph`), async snap => {
       const val = snap.val()
       if (!val?.paragraph || !val?.ts || val.ts < PAGE_LOAD_TIME) return
       await handleSelectCCCRef.current(val.paragraph)
+    })
+  }, [])
+
+  // Listen for remote song slide selections
+  useEffect(() => {
+    return onValue(dbRef(db, `${P}/currentSong`), snap => {
+      const val = snap.val()
+      if (!val?.filename || !val?.ts || val.ts < PAGE_LOAD_TIME) return
+      showSongSlideRef.current(val.filename, val.slideIdx ?? 0)
+    })
+  }, [])
+
+  // Listen for remote media
+  useEffect(() => {
+    return onValue(dbRef(db, `${P}/currentMedia`), snap => {
+      const val = snap.val()
+      if (!val?.ts || val.ts < PAGE_LOAD_TIME) return
+      setSongState(null)
+      setCurrentRef(null)
+      setVerseRefLabel('')
+      if (val.type === 'clear') {
+        setMediaUrl(null)
+        setMediaHtml(null)
+        setVerseText('')
+        setVerseRefLabel('')
+      } else if (val.type === 'image' && val.url) {
+        setMediaUrl(val.url)
+        setMediaHtml(null)
+        setVerseText('')
+      } else if (val.type === 'text') {
+        setMediaUrl(null)
+        if (val.html) {
+          setMediaHtml(val.html)
+          setVerseText('')
+        } else if (val.text) {
+          setMediaHtml(null)
+          setVerseText(val.text)
+        }
+      }
+    })
+  }, [])
+
+  // Listen for background image changes
+  useEffect(() => {
+    return onValue(dbRef(db, `${P}/bgImage`), snap => {
+      const val = snap.val()
+      if (!val?.url) { setBgImageUrl(null); return; }
+      setBgImageUrl(val.url)
+      setBgImageOpacity(val.opacity ?? 0.2)
+    })
+  }, [])
+
+  // Relay remote song search queries (main app has the manifest, remote does not need it)
+  useEffect(() => {
+    return onValue(dbRef(db, `${P}/songSearchQuery`), async snap => {
+      const val = snap.val()
+      if (!val?.q || !val?.ts || val.ts < PAGE_LOAD_TIME) return
+      const { songsManifest: songs } = stateRef.current
+      if (!songs) return
+      const q = val.q.toLowerCase()
+      const results = songs
+        .filter(s => s.title.toLowerCase().includes(q) || s.text.toLowerCase().includes(q))
+        .slice(0, 15)
+        .map(({ filename, title, voices }) => ({ filename, title, voices }))
+      await set(dbRef(db, `${P}/songSearchResults`), { ts: val.ts, results })
     })
   }, [])
 
@@ -208,10 +303,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     }
   }, [bibleEN])
 
-  const saveRecent = (refObj, label) => {
+  const saveRecent = (refObj, label, text = '') => {
     const data = refObj?.ccc
-      ? { key: label, type: 'ccc', paragraph: refObj.ccc, ts: Date.now() }
-      : { key: label, type: 'bible', book: refObj.book, chapter: refObj.chapter, verse: refObj.verse, ts: Date.now() }
+      ? { key: label, type: 'ccc', paragraph: refObj.ccc, text, ts: Date.now() }
+      : { key: label, type: 'bible', book: refObj.book, chapter: refObj.chapter, verse: refObj.verse, text, ts: Date.now() }
     const pushRef = push(dbRef(db, RECENT_ITEMS_PATH), data)
     return pushRef.key
   }
@@ -274,6 +369,9 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
 
   const showVerse = useCallback(async (parsed, { addToRecent = true, rangeNav = false } = {}) => {
     if (!parsed) return
+    setSongState(null)
+    setMediaUrl(null)
+    setMediaHtml(null)
     const { displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     const store = dm === 'ML' ? ml : en
     const { text, resolvedBook } = lookupVerse(store, parsed.book, parsed.chapter, parsed.verse)
@@ -284,8 +382,9 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setVerseText(text)
       setCurrentRef(parsed)
       setStatus(label)
+      set(dbRef(db, `${P}/liveSlide`), { type: 'verse', book: parsed.book, chapter: parsed.chapter, verse: parsed.verse, ts: Date.now() }).catch(() => {})
       if (addToRecent) {
-        const fbKey = saveRecent(parsed, label)
+        const fbKey = saveRecent(parsed, label, text)
         navRangeRef.current = { book: resolvedBook, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: label, fbKey }
       } else if (rangeNav) {
         updateNavRange(resolvedBook, parsed.chapter, parsed.verse)
@@ -310,8 +409,9 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setVerseText(apiData.text.trim())
       setCurrentRef(parsed)
       setStatus('Loaded from API')
+      set(dbRef(db, `${P}/liveSlide`), { type: 'verse', book: parsed.book, chapter: parsed.chapter, verse: parsed.verse, ts: Date.now() }).catch(() => {})
       if (addToRecent) {
-        const fbKey = saveRecent(parsed, apiData.reference)
+        const fbKey = saveRecent(parsed, apiData.reference, apiData.text.trim())
         navRangeRef.current = { book: parsed.book, chapter: parsed.chapter, start: parsed.verse, end: parsed.verse, key: apiData.reference, fbKey }
       }
     } catch (e) {
@@ -324,6 +424,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
 
   // Load and display a CCC paragraph
   const handleSelectCCC = useCallback(async (paragraphNum) => {
+    setSongState(null)
     let ccc = stateRef.current.cccData
     if (!ccc) {
       try {
@@ -341,7 +442,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       setVerseRefLabel(label)
       setVerseText(text)
       setCurrentRef(null)
-      saveRecent({ ccc: paragraphNum }, label)
+      saveRecent({ ccc: paragraphNum }, label, text)
       setStatus(label)
     } else {
       setStatus(`CCC #${paragraphNum} not found`)
@@ -350,6 +451,35 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
 
   const handleSelectCCCRef = useRef(handleSelectCCC)
   handleSelectCCCRef.current = handleSelectCCC
+
+  // Load and display a song slide
+  const showSongSlide = useCallback(async (filename, slideIdx) => {
+    let parsed
+    try {
+      const fileRef = storageRef(storage, `lyrics-text/${filename}.txt`)
+      const bytes = await getBytes(fileRef)
+      parsed = parseLyrics(new TextDecoder('utf-8').decode(bytes))
+    } catch {
+      setStatus('Could not load song: ' + filename)
+      return
+    }
+    const { title, slides } = parsed
+    if (!slides.length) { setStatus('No slides in song'); return }
+    const idx = Math.max(0, Math.min(slideIdx, slides.length - 1))
+    const slide = slides[idx]
+    setMediaUrl(null)
+    setMediaHtml(null)
+    setVerseRefLabel('')
+    setVerseText(slide.text)
+    setCurrentRef(null)
+    setSongState({ filename, title, slides, slideIdx: idx })
+    setSongHasEdits(false)
+    setStatus(`${title} · ${slide.voice} · ${idx + 1}/${slides.length}`)
+    set(dbRef(db, `${P}/liveSlide`), { type: 'song', filename, slideIdx: idx, ts: Date.now() }).catch(() => {})
+  }, [])
+
+  const showSongSlideRef = useRef(showSongSlide)
+  showSongSlideRef.current = showSongSlide
 
   // Unified verse/CCC select handler (used by search + recent)
   const handleSelectVerse = useCallback((parsed) => {
@@ -361,6 +491,17 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
   const saveEditTimerRef = useRef(null)
   const handleVerseEdit = (newText) => {
     setVerseText(newText)
+    // In song mode, keep slides in sync so Save captures the edit
+    const { songState: ss } = stateRef.current
+    if (ss) {
+      setSongHasEdits(true)
+      setSongState(prev => {
+        if (!prev) return prev
+        const slides = prev.slides.map((s, i) => i === prev.slideIdx ? { ...s, text: newText } : s)
+        return { ...prev, slides }
+      })
+      return
+    }
     const { currentRef: cr, displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     if (!cr) return
     const store = dm === 'ML' ? ml : en
@@ -384,8 +525,30 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     }, 1200)
   }
 
+  // Save edited song back to Firebase Storage
+  const [songSaving, setSongSaving] = useState(false)
+  const [songHasEdits, setSongHasEdits] = useState(false)
+  const saveSong = async () => {
+    const ss = stateRef.current.songState
+    if (!ss) return
+    setSongSaving(true)
+    try {
+      const content = serializeLyrics(ss.title, ss.slides)
+      const fileRef = storageRef(storage, `lyrics-text/${ss.filename}.txt`)
+      await uploadString(fileRef, content, 'raw', { contentType: 'text/plain; charset=utf-8' })
+      setSongHasEdits(false)
+      setStatus('Song saved ✓')
+      setTimeout(() => setStatus('Ready'), 2000)
+    } catch (e) {
+      setStatus('Save failed: ' + e.message)
+    } finally {
+      setSongSaving(false)
+    }
+  }
+
   // AI semantic search
   const searchVersesCallable = useMemo(() => httpsCallable(functions, 'searchVerses'), [])
+  const searchSongsCallable = useMemo(() => httpsCallable(functions, 'searchSongs'), [])
 
   const handleAiSearch = async (query) => {
     const { bibleEN: en, bibleML: ml } = stateRef.current
@@ -443,9 +606,41 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
     }
   }
 
+  // AI song search: sends all titles to Gemini, which identifies matching filenames
+  const handleSongAiSearch = useCallback(async (query) => {
+    const { songsManifest: songs } = stateRef.current
+    if (!songs) { setStatus('Songs not loaded yet'); return }
+    setSongAiLoading(true)
+    try {
+      const titleList = songs.map(s => ({ filename: s.filename, title: s.title }))
+      const result = await searchSongsCallable({ query, songs: titleList })
+      const filenames = result.data?.filenames || []
+      const matched = filenames
+        .map(fn => songs.find(s => s.filename === fn))
+        .filter(Boolean)
+      if (matched.length === 0) {
+        setStatus(`No songs found for "${query}"`)
+      } else {
+        setStatus(`Found ${matched.length} song(s) for "${query}"`)
+        setAiResults(matched.map(s => ({
+          type: 'song',
+          ref: s.title,
+          text: s.text?.slice(0, 100) || '',
+          filename: s.filename,
+          reason: `${s.voices?.length || 0} slides`,
+          parsed: null,
+        })))
+      }
+    } catch (e) {
+      setStatus('Song AI search failed: ' + (e?.message || e))
+    } finally {
+      setSongAiLoading(false)
+    }
+  }, [searchSongsCallable])
+
   // Relay remote search queries
   useEffect(() => {
-    return onValue(dbRef(db, 'remote/searchQuery'), async snap => {
+    return onValue(dbRef(db, `${P}/searchQuery`), async snap => {
       const val = snap.val()
       if (!val?.q || !val?.ts || val.ts < PAGE_LOAD_TIME) return
       const { bibleEN: en } = stateRef.current
@@ -453,24 +648,32 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
       try {
         const candidates = tfidfSearch(en, val.q, 40).map(c => ({ ref: c.ref, text: c.text }))
         if (candidates.length === 0) {
-          await set(dbRef(db, 'remote/searchResults'), { ts: val.ts, results: [] })
+          await set(dbRef(db, `${P}/searchResults`), { ts: val.ts, results: [] })
           return
         }
         const { data } = await searchVersesCallable({ query: val.q, candidates })
-        await set(dbRef(db, 'remote/searchResults'), { ts: val.ts, results: data.results || [] })
+        await set(dbRef(db, `${P}/searchResults`), { ts: val.ts, results: data.results || [] })
       } catch {
-        await set(dbRef(db, 'remote/searchResults'), { ts: val.ts, results: [] })
+        await set(dbRef(db, `${P}/searchResults`), { ts: val.ts, results: [] })
       }
     })
   }, [searchVersesCallable])
 
   // Navigation
   const prevVerse = () => {
-    const cr = stateRef.current.currentRef
+    const { songState: ss, currentRef: cr } = stateRef.current
+    if (ss) {
+      if (ss.slideIdx > 0) showSongSlideRef.current(ss.filename, ss.slideIdx - 1)
+      return
+    }
     if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
   }
   const nextVerse = () => {
-    const cr = stateRef.current.currentRef
+    const { songState: ss, currentRef: cr } = stateRef.current
+    if (ss) {
+      if (ss.slideIdx < ss.slides.length - 1) showSongSlideRef.current(ss.filename, ss.slideIdx + 1)
+      return
+    }
     if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
   }
 
@@ -617,7 +820,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
           onPrev={prevVerse}
           onNext={nextVerse}
           displayMode={displayMode}
-          onSetMode={mode => setDisplayMode(mode)}
+          onSetMode={mode => { setDisplayMode(mode); setSongState(null) }}
           onDecreaseFontSize={decreaseFontSize}
           onIncreaseFontSize={increaseFontSize}
           onToggleTheme={onToggleTheme}
@@ -627,6 +830,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
           onSelectVerse={handleSelectVerse}
           onAiSearch={handleAiSearch}
           aiLoading={aiLoading}
+          songs={songsManifest}
+          onSelectSong={filename => showSongSlideRef.current(filename, 0)}
+          onSongAiSearch={handleSongAiSearch}
+          songAiLoading={songAiLoading}
         />
 
         {/* AI search results panel */}
@@ -663,15 +870,17 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
                   <button
                     key={i}
                     onClick={() => {
-                      if (r.type === 'bible' && r.parsed) {
+                      if (r.type === 'song' && r.filename) {
+                        showSongSlideRef.current(r.filename, 0)
+                        setAiResults(null)
+                      } else if (r.type === 'bible' && r.parsed) {
                         showVerseRef.current(r.parsed)
                         setAiResults(null)
                       } else if (r.type === 'ccc' && r.paragraph) {
-                        // Project CCC text onto the verse stage
                         setVerseRefLabel(r.ref)
                         setVerseText(r.text)
                         setCurrentRef(null)
-                        saveRecent({ ccc: r.paragraph }, r.ref)
+                        saveRecent({ ccc: r.paragraph }, r.ref, r.text || '')
                         setStatus(r.ref)
                         setAiResults(null)
                       }
@@ -728,12 +937,20 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme }) {
           isDark={isDark}
           verseRef={verseRefLabel}
           verseText={verseText}
-          displayMode={displayMode}
+          displayMode={songState ? 'ML' : displayMode}
           fontSize={fontSize}
           isRecording={isListening}
           isFullscreen={isFullscreen}
           onVerseEdit={handleVerseEdit}
           onToggleFullscreen={toggleFullscreen}
+          isSongMode={!!songState}
+          onSaveSong={saveSong}
+          songSaving={songSaving}
+          songHasEdits={songHasEdits}
+          mediaUrl={mediaUrl}
+          mediaHtml={mediaHtml}
+          bgImageUrl={bgImageUrl}
+          bgImageOpacity={bgImageOpacity}
         />
 
         <RecentVerses

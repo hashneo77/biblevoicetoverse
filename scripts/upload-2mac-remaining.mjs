@@ -1,0 +1,243 @@
+/**
+ * Uploads chapters 11-15 of 2 Maccabees to english/b73/chapters in Firebase.
+ * Run: node scripts/upload-2mac-remaining.mjs
+ */
+
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set } from 'firebase/database';
+
+const firebaseConfig = {
+  apiKey: 'AIzaSyBkg__6ueuUWRGYZRF8-iqWmzb3OfKn8Mw',
+  authDomain: 'biblevoicetoverse.firebaseapp.com',
+  databaseURL: 'https://biblevoicetoverse-default-rtdb.firebaseio.com',
+  projectId: 'biblevoicetoverse',
+  storageBucket: 'biblevoicetoverse.firebasestorage.app',
+  messagingSenderId: '817133011749',
+  appId: '1:817133011749:web:efc22d1c1ebc54a42790cc',
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const ch11 = {
+  "1": "Now after a very little time Lysias, the king's guardian and kinsman and chancellor, being sore displeased for the things that had come to pass,",
+  "2": "collected about fourscore thousand footmen and all his horsemen and came against the Jews, thinking to make the city a place for Greeks to dwell in,",
+  "3": "and to levy tribute on the temple, as on the other sacred places of the nations, and to put up the high priesthood to sale every year;",
+  "4": "holding in no account the might of God, but puffed up with his ten thousands of footmen, and his thousands of horsemen, and his fourscore elephants.",
+  "5": "And coming into Judea and drawing near to Bethsuron, which was a strong place and distant from Jerusalem about five leagues, he pressed it hard.",
+  "6": "But when Maccabaeus and his men learned that he was besieging the strongholds, they and all the people with lamentations and tears made supplication to the Lord to send a good angel to save Israel.",
+  "7": "And Maccabaeus himself took up arms first, and exhorted the others to jeopard themselves together with him and succour their kindred; and they sallied forth with him right willingly.",
+  "8": "And as they were there, close to Jerusalem, there appeared at their head one on horseback in white apparel, brandishing weapons of gold.",
+  "9": "And they all together praised the merciful God, and were yet more strengthened in heart: being ready to assail not men only but the wildest beasts, and walls of iron,",
+  "10": "they advanced in array, having him that is in heaven to fight on their side, for the Lord had mercy on them.",
+  "11": "And hurling themselves like lions upon the enemy, they killed of them eleven thousand footmen and sixteen hundred horsemen, and forced all the rest to flee.",
+  "12": "But the more part of them escaped wounded and naked; and Lysias also himself escaped by shameful flight.",
+  "13": "But as he was a man not void of understanding, weighing with himself the defeat which had befallen him, and considering that the Hebrews could not be overcome, because the Almighty God fought on their side, he sent again to them,",
+  "14": "and persuaded them to come to terms on condition that all their rights were acknowledged, and promised that he would also persuade the king to become their friend.",
+  "15": "And Maccabaeus gave consent upon all the conditions which Lysias proposed to him, being careful of the common good; for whatever requests Maccabaeus delivered in writing to Lysias concerning the Jews the king allowed.",
+  "16": "For the letters written to the Jews from Lysias were to this effect: Lysias to the people of the Jews, greeting.",
+  "17": "John and Absalom, who were sent from you, having delivered the petition written below, made request concerning the things signified therein.",
+  "18": "Whatever things therefore had need to be brought before the king I declared to him, and what things were possible he allowed.",
+  "19": "If then you will preserve your good will toward the state, henceforward also will I endeavour to contribute to your good.",
+  "20": "And on this behalf I have given order in detail, both to these men and to those that are sent from me, to confer with you.",
+  "21": "Fare you well. Written in the hundred forty and eighth year, on the four and twentieth day of the month Dioscorinthius.",
+  "22": "And the king's letter was in these words: King Antiochus to his brother Lysias, greeting.",
+  "23": "Seeing that our father passed to the gods having the wish that the subjects of his kingdom should be undisturbed and give themselves to the care of their own affairs,",
+  "24": "we, having heard that the Jews do not consent to our father's purpose to turn them to the customs of the Greeks, but choose rather their own manner of living, and make request that the customs of their law be allowed to them,",
+  "25": "choosing therefore that this nation also should be free from disturbance, we determine that their temple be restored to them, and that they live according to the customs that were in the days of their ancestors.",
+  "26": "You will therefore do well to send messengers to them and give them the right hand of friendship, that they, knowing our mind, may be of good heart, and gladly occupy themselves with the conduct of their own affairs.",
+  "27": "And to the nation the king's letter was after this manner: King Antiochus to the senate of the Jews and to the other Jews, greeting.",
+  "28": "If you fare well, we have our desire: we ourselves also are in good health.",
+  "29": "Menelaus informed us that your desire was to return home and follow your own business.",
+  "30": "They therefore that depart home up to the thirtieth day of Xanthicus shall have our friendship, with full permission",
+  "31": "that the Jews use their own proper meats and observe their own laws, even as before; and none of them shall be in any way molested for the things that have been ignorantly done.",
+  "32": "Moreover I have sent Menelaus also, that he may encourage you.",
+  "33": "Fare you well. Written in the hundred forty and eighth year, on the fifteenth day of Xanthicus.",
+  "34": "And the Romans also sent to them a letter in these words: Quintus Memmius and Titus Manius, ambassadors of the Romans, to the people of the Jews, greeting.",
+  "35": "In regard to the things which Lysias the king's kinsman granted you, we also give consent.",
+  "36": "But as for the things which he judged should be referred to the king, send one forthwith, after you have advised thereof, that we may publish such decrees as befit your case; for we are on our way to Antioch.",
+  "37": "Wherefore send some with speed, that we also may learn what is your mind.",
+  "38": "Farewell. Written in the hundred forty and eighth year, on the fifteenth day of Xanthicus."
+};
+
+const ch12 = {
+  "1": "So when these covenants had been made, Lysias departed to the king, and the Jews went about their husbandry.",
+  "2": "But certain of the governors of districts, Timotheus and Apollonius the son of Gennaeus, and Hieronymus also and Demophon, and beside them Nicanor the governor of Cyprus, would not suffer them to enjoy tranquillity and live in peace.",
+  "3": "And men of Joppa perpetrated this great impiety: they invited the Jews that dwelt among them to go with their wives and children into the boats which they had provided, as though they had no ill will towards them;",
+  "4": "and when the Jews, relying on the common decree of the city, accepted the invitation, as men desiring to live in peace and suspecting nothing, they took them out to sea and drowned them, in number not less than two hundred.",
+  "5": "But when Judas heard of the cruelty done to his fellow-countrymen, giving command to the men that were with him",
+  "6": "and calling upon God the righteous Judge, he came against the murderers of his kindred, and set the haven on fire by night, and burned the boats, and put to the sword those that had fled there.",
+  "7": "But when the town was closed against him, he withdrew, intending to come again to root out the whole community of the men of Joppa.",
+  "8": "But learning that the men of Jamnia were minded to do in like manner to the Jews that sojourned among them,",
+  "9": "he fell upon the Jamnites also by night, and set fire to the haven together with the fleet, so that the glare of the light was seen at Jerusalem, two hundred and forty furlongs distant.",
+  "10": "Now when they had drawn off nine furlongs from thence, as they marched against Timotheus, a host of Arabians attacked him, no fewer than five thousand footmen and five hundred horsemen.",
+  "11": "And when a sore battle had been fought, and Judas and his company by the help of God had good success, the nomads being overcome besought Judas to grant them friendship, promising to give him cattle, and to help his people in all other ways.",
+  "12": "So Judas, thinking that they would indeed be profitable in many things, agreed to live in peace with them; and receiving pledges of friendship they departed to their tents.",
+  "13": "And he also fell upon a certain city Gephyrun, strong and fenced about with walls, and inhabited by a mixed multitude of various nations; and it was named Caspin.",
+  "14": "But they that were within, trusting to the strength of the walls and to their store of provisions, behaved themselves rudely toward Judas and them that were with him, railing, and furthermore blaspheming and speaking impious words.",
+  "15": "But Judas and his company, calling upon the great sovereign of the world, who without rams and cunning engines of war hurled down Jericho in the times of Joshua, rushed wildly against the wall;",
+  "16": "and having taken the city by the will of God, they made unspeakable slaughter, insomuch that the adjoining lake, which was two furlongs broad, appeared to be filled with the deluge of blood.",
+  "17": "And when they had drawn off seven hundred and fifty furlongs from thence, they made their way to Charax, to the Jews that are called Tubieni.",
+  "18": "And Timotheus they found not in occupation of that district, for he had then departed from the district without accomplishing anything, but had left behind a garrison, and that a very strong one, in a certain post.",
+  "19": "But Dositheus and Sosipater, who were of Maccabaeus's captains, sallied forth and destroyed those that had been left by Timotheus in the stronghold, above ten thousand men.",
+  "20": "And Maccabaeus, ranging his own army by bands, set these two over the bands, and marched in haste against Timotheus, who had with him a hundred and twenty thousand footmen and two thousand and five hundred horsemen.",
+  "21": "But when Timotheus heard of the inroad of Judas, he at once sent away the women and the children and also the baggage into the fortress called Carnion; for the place was hard to besiege and difficult of access by reason of the narrowness of the approaches on all sides.",
+  "22": "But when the band of Judas, who led the van, appeared in sight, and when terror came upon the enemy and fear, because the manifestation of him who beholds all things came upon them, they fled amain, carried this way and that, so that they were often hurt of their own men, and pierced with the points of their swords.",
+  "23": "And Judas continued the pursuit the more hotly, putting the wicked wretches to the sword, and he destroyed as many as thirty thousand men.",
+  "24": "But Timotheus himself, falling in with the company of Dositheus and Sosipater, besought them with much crafty guile to let him go with his life, because he had in his power the parents of many of them and the kindred of some: otherwise, said he, little regard will be shown to these.",
+  "25": "So when he had with many words confirmed the agreement to restore them without hurt, they let him go that they might save their kindred.",
+  "26": "And Judas, marching against Carnion and the temple of Atergatis, killed five and twenty thousand persons.",
+  "27": "And after he had put these to flight and destroyed them, he marched against Ephron also, a strong city, wherein were multitudes of people of all nations; and stalwart young men placed on the walls made a vigorous defence; and there were great stores of engines and darts there.",
+  "28": "But calling upon the Sovereign who with might breaks in pieces the strength of the enemy, they got the city into their hands, and killed as many as twenty and five thousand of them that were within.",
+  "29": "And setting out from thence they marched in haste against Scythopolis, which is distant from Jerusalem six hundred furlongs.",
+  "30": "But when the Jews that were settled there testified of the good will that the Scythopolitans had shown toward them, and of their kindly bearing toward them in the times of their misfortune,",
+  "31": "they gave thanks, and further exhorted them to remain well affected toward the race for the future; and they went up to Jerusalem, the feast of weeks being close to hand.",
+  "32": "But after the feast called Pentecost they marched in haste against Gorgias the governor of Idumaea:",
+  "33": "and he came out with three thousand footmen and four hundred horsemen.",
+  "34": "And when they had set themselves in array, it came to pass that a few of the Jews fell.",
+  "35": "And a certain Dositheus, one of Bacenor's company, who was on horseback and a strong man, pressed hard on Gorgias, and taking hold of his cloke drew him along by main force; and while he was minded to take the accursed man alive, one of the Thracian horsemen bore down upon him and disabled his shoulder, and so Gorgias escaped to Marisa.",
+  "36": "And when they that were with Esdris had been fighting long and were wearied out, Judas called upon the Lord to show himself, fighting on their side and leading the van of the battle;",
+  "37": "and then in the language of his fathers he raised the battle-cry joined with hymns, and rushing unawares upon the troops of Gorgias put them to flight.",
+  "38": "And Judas gathering his army came to the city of Adullam; and as the seventh day was coming on, they purified themselves according to the custom, and kept the sabbath there.",
+  "39": "And on the day following, at which time it had become necessary, Judas and his company came to take up the bodies of them that had fallen, and in company with their kinsmen to bring them back to the sepulchres of their fathers.",
+  "40": "But under the garments of each one of the dead they found consecrated tokens of the idols of Jamnia, which the law forbids the Jews to have anything to do with; and it became clear to all that it was for this cause that they had fallen.",
+  "41": "All therefore, blessing the works of the Lord, the righteous Judge, who makes manifest the things that are hid,",
+  "42": "betook themselves to supplication, beseeching that the sin committed might be wholly blotted out. And the noble Judas exhorted the multitude to keep themselves from sin, since they had seen before their eyes what things had come to pass because of the sin of them that had fallen.",
+  "43": "And when he had made a collection man by man to the sum of two thousand drachmas of silver, he sent to Jerusalem to offer a sacrifice for sin, doing therein right well and honorably, in that he took thought for a resurrection.",
+  "44": "For if he were not expecting that they that had fallen would rise again, it were superfluous and idle to pray for the dead.",
+  "45": "And if he did it looking to an honorable memorial of gratitude laid up for them that die in godliness, holy and godly was the thought. Wherefore he made the propitiation for them that had died, that they might be released from their sin."
+};
+
+const ch13 = {
+  "1": "In the hundred forty and ninth year tidings were brought to Judas and his company that Antiochus Eupator was coming with great multitudes against Judea,",
+  "2": "and with him Lysias his guardian and chancellor, each having a Greek force, a hundred and ten thousand footmen, and five thousand and three hundred horsemen, and two and twenty elephants, and three hundred chariots armed with scythes.",
+  "3": "And Menelaus also joined himself with them, and with great dissimulation encouraged Antiochus, not for the saving of his country, but because he thought that he would be set over the government.",
+  "4": "But the King of kings stirred up the passion of Antiochus against the wicked wretch; and when Lysias informed him that this man was the cause of all the evils, the king commanded to bring him to Beroea, and to put him to death after the manner of that place.",
+  "5": "Now there is in that place a tower of fifty cubits high, full of ashes, and it had all round it a gallery descending sheer on every side into the ashes.",
+  "6": "Here him that is guilty of sacrilege, or has attained a preeminence in any other evil deeds, they all push forward into destruction.",
+  "7": "By such a fate it befell the breaker of the law, Menelaus, to die, without obtaining so much as a grave in the earth, and that right justly;",
+  "8": "for inasmuch as he had perpetrated many sins against the altar, whose fire and whose ashes were holy, in ashes did he receive his death.",
+  "9": "Now the king, infuriated in spirit, was coming with intent to inflict on the Jews the very worst of the sufferings that had befallen them in his father's time.",
+  "10": "But when Judas heard of these things, he gave charge to the multitude to call upon the Lord day and night, beseeching him, if ever at any other time, so now to succour them that were at the point to be deprived of the law and their country and the holy temple,",
+  "11": "and not to suffer the people that had been but now a little while revived to fall into the hands of those profane heathen.",
+  "12": "So when they had all done the same thing together, beseeching the merciful Lord with weeping and fastings and prostration for three days without ceasing, Judas exhorted them and commanded they should join him for service.",
+  "13": "And having gone apart with the elders he resolved that, before the king's army should enter into Judea and make themselves masters of the city, they should go forth and try the matter in fight by the help of God.",
+  "14": "And committing the decision to the Lord of the world, and exhorting them that were with him to contend nobly even to death for laws, temple, city, country, commonwealth, he pitched his camp by Modin.",
+  "15": "And given out to his men the watchword, VICTORY IS GOD'S, with a chosen body of the bravest young men he fell upon the camp by night and penetrated to the king's tent, and killed of the army as many as two thousand men, and brought down the chiefest elephant with him that was in the tower upon him.",
+  "16": "And at last they filled the army with terror and alarm, and departed with good success.",
+  "17": "And this had been accomplished when the day was but now dawning, because of the Lord's protection that gave Judas help.",
+  "18": "But the king, having had a taste of the exceeding boldness of the Jews, made attempts by stratagem upon their positions,",
+  "19": "and upon a strong fortress of the Jews at Bethsura; he advanced, was turned back, failed, was defeated,",
+  "20": "And Judas conveyed such things as were necessary to them that were within.",
+  "21": "But Rhodocus, from the Jewish ranks, made known to the enemy the secrets of his countrymen. He was sought out, and taken, and shut up in prison.",
+  "22": "The king treated with them in Bethsura the second time, gave his hand, took theirs, departed, attacked the forces of Judas, was put to the worse,",
+  "23": "heard that Philip who had been left as chancellor in Antioch had become reckless, was confounded, made to the Jews an overture of peace, submitted himself and sware to acknowledge all their rights, came to terms with them and offered sacrifice, honored the sanctuary and the place,",
+  "24": "showed kindness and graciously received Maccabaeus, left Hegemonides governor from Ptolemais even to the Gerrenians,",
+  "25": "came to Ptolemais. The men of Ptolemais were displeased at the treaty, for they had exceeding great indignation against the Jews: they desired to annul the articles of the agreement.",
+  "26": "Lysias came forward to speak, made the best defence that was possible, persuaded, pacified, made them well affected, departed to Antioch. This was the issue of the inroad and departure of the king."
+};
+
+const ch14 = {
+  "1": "Now after a space of three years tidings were brought to Judas and his company that Demetrius the son of Seleucus, having sailed into the haven of Tripolis with a mighty host and a fleet,",
+  "2": "had gotten possession of the country, having made away with Antiochus and Lysias his guardian.",
+  "3": "But one Alcimus, who had formerly been high priest, and had wilfully polluted himself in the times when there was no mingling with the Gentiles, considering that there was no deliverance for him in any way, nor any more access to the holy altar,",
+  "4": "came to king Demetrius in about the hundred and one and fiftieth year, presenting to him a chaplet of gold and a palm, and beside these some of the festal olive boughs of the temple. And for that day he held his peace;",
+  "5": "but having gotten opportunity to further his own madness, being called by Demetrius into a meeting of his council, and asked how the Jews stood affected and what they purposed, he answered to it.",
+  "6": "Those of the Jews that he called Hasidaeans, whose leader is Judas Maccabaeus, keep up war, and are seditious, not suffering the kingdom to find tranquillity.",
+  "7": "Wherefore, having laid aside my ancestral glory, I mean the high priesthood, I am now come here;",
+  "8": "first for the unfeigned care I have for the things that concern the king, and secondly because I have regard also to my own fellow-citizens: for, through the unadvised dealing of those of whom I spoke before, our whole race is in no small misfortune.",
+  "9": "But do you, O king, having informed yourself of these things severally, take thought both for our country and for our race, which is surrounded by foes, according to the gracious kindness with which you receive all.",
+  "10": "For as long as Judas remains alive, it is impossible that the state should find peace.",
+  "11": "And when he had spoken such words as these, at once the rest of the king's Friends, having ill will against Judas, inflamed Demetrius yet more.",
+  "12": "And forthwith appointing Nicanor, who had been master of the elephants, and making him governor of Judea, he sent him forth,",
+  "13": "giving him written instructions to make away with Judas himself and to scatter them that were with him, and to set up Alcimus as high priest of the great temple.",
+  "14": "And those in Judea that had before driven Judas into exile thronged to Nicanor in flocks, supposing that the misfortunes and calamities of the Jews would be successes to themselves.",
+  "15": "But when the Jews heard of Nicanor's inroad and the assault of the heathen, they sprinkled earth upon their heads and made solemn supplication to him who had established his own people for evermore, and who alway, making manifest his presence, upholds them that are his own portion.",
+  "16": "And when the leader had given his commands, he straightway sets out from thence, and joins battle with them at a village called Lessau.",
+  "17": "But Simon, the brother of Judas, had encountered Nicanor, yet not till late, having received a check by reason of the sudden consternation caused by his adversaries.",
+  "18": "Nevertheless Nicanor, hearing of the manliness of them that were with Judas, and their courage in fighting for their country, shrank from bringing the matter to the decision of the sword.",
+  "19": "Wherefore he sent Posidonius and Theodotus and Mattathias to give and receive pledges of friendship.",
+  "20": "So when these proposals had been long considered, and the leader had made the troops acquainted therewith, and it appeared that they were all of like mind, they consented to the covenants.",
+  "21": "And they appointed a day on which to meet together by themselves. And a litter was borne forward from each army; they set chairs of state;",
+  "22": "Judas stationed armed men ready in convenient places, lest haply there should suddenly be treachery on the part of the enemy; they held such conference as was meet.",
+  "23": "Nicanor tarried in Jerusalem, and did nothing to cause disturbance, but dismissed the flocks of people that had gathered together.",
+  "24": "And he kept Judas always in his presence; he had gained a hearty affection for the man;",
+  "25": "he urged him to marry and beget children; he married, settled quietly, took part in common life.",
+  "26": "But Alcimus, perceiving the good will that was between them, and having got possession of the covenants that had been made, came to Demetrius and told him that Nicanor was ill affected toward the state, for he had appointed that conspirator against his kingdom, Judas, to be his successor.",
+  "27": "And the king, falling into a rage, and being exasperated by the calumnies of that most wicked man, wrote to Nicanor, signifying that he was displeased at the covenants, and commanding him to send Maccabaeus prisoner to Antioch in all haste.",
+  "28": "And when this message came to Nicanor, he was confounded, and was sore troubled at the thought of annulling the articles that had been agreed upon, the man having done no wrong;",
+  "29": "but because there was no dealing against the king, he watched his time to execute this purpose by stratagem.",
+  "30": "But Maccabaeus, when he perceived that Nicanor was behaving more harshly in his dealings with him, and that he had become ruler in his customary bearing, understanding that this harshness came not of good, gathered together not a few of his men, and concealed himself from Nicanor.",
+  "31": "But the other, when he became aware that he had been bravely defeated by the stratagem of Judas, came to the great and holy temple, while the priests were offering the usual sacrifices, and commanded them to deliver up the man.",
+  "32": "And when they declared with oaths that they had no knowledge where the man was whom he sought,",
+  "33": "he stretched forth his right hand toward the sanctuary, and sware this oath: If you will not deliver up to me Judas as a prisoner, I will lay this temple of God even with the ground, and will break down the altar, and I will erect here a temple to Bacchus for all to see.",
+  "34": "And having said this, he departed. But the priests, stretching forth their hands toward heaven, called upon him that ever fights for our nation, in these words:",
+  "35": "You, O Lord of the universe, who in yourself have need of nothing, were well pleased that a sanctuary of your habitation should be set among us;",
+  "36": "so now, O holy Lord of all hallowing, keep undefiled for ever this house that has been lately cleansed.",
+  "37": "Now information was given to Nicanor against one Razis, an elder of Jerusalem, as being a lover of his countrymen and a man of very good report, and one called Father of the Jews for his good will toward them.",
+  "38": "For in the former times when there was no mingling with the Gentiles he had been accused of cleaving to the Jews' religion, and had jeoparded body and life with all earnestness for the religion of the Jews.",
+  "39": "And Nicanor, wishing to make evident the ill will that he bare to the Jews, sent above five hundred soldiers to take him;",
+  "40": "for he thought by taking him to inflict a calamity upon them.",
+  "41": "But when the troops were on the point of taking the tower, and were forcing the door of the court, and bade bring fire and burn the doors, he being surrounded on every side fell upon his sword,",
+  "42": "choosing rather to die nobly than to fall into the hands of the wicked wretches, and suffer outrage unworthy of his own nobleness:",
+  "43": "but since he missed his stroke through the excitement of the struggle, and the crowds were now rushing within the door, he ran bravely up to the wall and cast himself down manfully among the crowds.",
+  "44": "But as they quickly gave back, a space was made, and he fell on the middle of his side.",
+  "45": "And having yet breath within him, and being inflamed with passion, he rose up, and though his blood gushed out in streams and his wounds were grievous, he ran through the crowds, and standing upon a steep rock,",
+  "46": "when as his blood was now well nigh spent, he drew forth his bowels through the wound, and taking them in both his hands he shook them at the crowds; and calling upon him who is Lord of the life and the spirit to restore him these again, he thus died."
+};
+
+const ch15 = {
+  "1": "But Nicanor, hearing that Judas and his company were in the region of Samaria, resolved to set upon them with all security on the day of rest.",
+  "2": "And when the Jews that were compelled to follow him said, O destroy not so savagely and barbarously, but give due glory to the day which he that beholds all things has honored and hallowed above other days;",
+  "3": "then the thrice-accursed wretch asked if there were a Sovereign in heaven that had commanded to keep the sabbath day.",
+  "4": "And when they declared, There is the Lord, living himself a Sovereign in heaven, who bade us observe the seventh day;",
+  "5": "then saith the other, I also am a sovereign upon the earth, who now command to take up arms and execute the king's business. Nevertheless he prevailed not to execute his cruel purpose.",
+  "6": "And Nicanor, bearing himself haughtily in all vaingloriousness, had determined to set up a monument of complete victory over Judas and all them that were with him:",
+  "7": "but Maccabaeus still trusted unceasingly, with all hope that he should obtain help from the Lord.",
+  "8": "And he exhorted his company not to be fearful at the inroad of the heathen, but, keeping in mind the help which of old they had oftentimes received from heaven, so now also to look for the victory which would come to them from the Almighty;",
+  "9": "and comforting them out of the law and the prophets, and withal putting them in mind of the conflicts that they had maintained, he made them more eager for the battle.",
+  "10": "And when he had roused their spirit, he gave them his commands, at the same time pointing out the perfidiousness of the heathen and their breach of their oaths.",
+  "11": "And arming each one of them, not so much with the sure defence of shields and spears as with the encouragement that lies in good words, and moreover relating to them a dream worthy to be believed, he made them all exceeding glad.",
+  "12": "And the vision of that dream was this: He saw Onias, him that was high priest, a noble and good man, reverend in bearing, yet gentle in manner and well-spoken, and exercised from a child in all points of virtue, with outstretched hands invoking blessings on the whole body of the Jews:",
+  "13": "thereupon he saw a man appear, of venerable age and exceeding glory, and wonderful and most majestic was the dignity around him:",
+  "14": "and Onias answered and said, This is the lover of the kindred, he who prays much for the people and the holy city, Jeremiah the prophet of God:",
+  "15": "and Jeremiah stretching forth his right hand delivered to Judas a sword of gold, and in giving it addressed him thus,",
+  "16": "Take the holy sword, a gift from God, wherewith you shall smite down the adversaries.",
+  "17": "And being encouraged by the words of Judas, which were of a lofty strain, and able to incite to virtue and to stir the souls of the young to manly courage, they determined not to carry on a campaign, but nobly to bear down upon the enemy, and fighting hand to hand with all courage bring the matter to an issue, because the city and the sanctuary and the temple were in danger.",
+  "18": "For their fear for wives and children, and furthermore for kindred and kinsfolk, was in less account with them; but greatest and first was their fear for the consecrated sanctuary.",
+  "19": "And they also that were shut up in the city were in no light distress, being troubled because of the encounter in the open ground.",
+  "20": "And when all were now waiting for the decision of the issue, and the enemy had already joined battle, and the army had been set in array, and the elephants brought back to a convenient post, and the horsemen drawn up on the flank,",
+  "21": "Maccabaeus, perceiving the presence of the troops, and the various arms with which they were equipped, and the savageness of the elephants, holding up his hands to heaven called upon the Lord that works wonders, recognising that success comes not by arms, but that, according as the Lord shall judge, he gains the victory for them that are worthy.",
+  "22": "And calling upon God he said after this manner: You, O Sovereign Lord, did send your angel in the time of Hezekiah king of Judea, and he killed of the host of Sennacherib as many as a hundred fourscore and five thousand;",
+  "23": "so now also, O Sovereign of the heavens, send a good angel before us to bring terror and trembling:",
+  "24": "through the greatness of your arm let them be stricken with dismay that with blasphemy are come here against your holy people. And as he ended with these words,",
+  "25": "Nicanor and his company advanced with trumpets and paeans;",
+  "26": "but Judas and his company joined battle with the enemy with invocation and prayers.",
+  "27": "And contending with their hands, and praying to God with their hearts, they killed no less than thirty and five thousand men, being made exceeding glad by the manifestation of God.",
+  "28": "And when the engagement was over, and they were returning again with joy, they recognised Nicanor lying dead in full armor;",
+  "29": "and there arose a shout and tumult, and then they blessed the Sovereign Lord in the language of their fathers.",
+  "30": "And he that in all things was in body and soul the foremost champion of his fellow-citizens, he that kept through life the good will of his youth toward his countrymen, commanded to cut off Nicanor's head, and his hand with the shoulder, and bring them to Jerusalem.",
+  "31": "And when he had arrived there, and had called his countrymen together and set the priests before the altar, he sent for them that were in the citadel;",
+  "32": "and showing the head of the vile Nicanor, and the hand of that profane man, which with proud brags he had stretched out against the holy house of the Almighty,",
+  "33": "and cutting out the tongue of the impious Nicanor, he said that he would give it by pieces to the birds, and hang up the rewards of his madness over against the sanctuary.",
+  "34": "And they all looking up to heaven blessed the Lord who had manifested himself, saying, Blessed be he that has preserved his own place undefiled.",
+  "35": "And he hanged Nicanor's head and shoulder from the citadel, a sign, evident to all and manifest, of the help of the Lord.",
+  "36": "And they all ordained with a common decree in no wise to let this day pass undistinguished, but to mark with honor the thirteenth day of the twelfth month (it is called Adar in the Syrian tongue), the day before the day of Mordecai.",
+  "37": "This then having been the issue of the attempt of Nicanor, and the city having from those times been held by the Hebrews, I also will here make an end of my book.",
+  "38": "And if I have written well and to the point in my story, this is what I myself desired; but if meanly and indifferently, this is all I could attain to.",
+  "39": "For as it is distasteful to drink wine alone and in like manner again to drink water alone, while the mingling of wine with water at once gives full pleasantness to the flavour; so also the fashioning of the language delights the ears of them that read the story."
+};
+
+async function main() {
+  const chapters = { ch11, ch12, ch13, ch14, ch15 };
+  for (const [chKey, verses] of Object.entries(chapters)) {
+    const count = Object.keys(verses).length;
+    console.log(`Uploading 2 Maccabees ${chKey} (${count} verses)...`);
+    await set(ref(db, `english/b73/chapters/${chKey}`), verses);
+    console.log(`  Done.`);
+  }
+  console.log('\nAll 5 chapters uploaded.');
+  process.exit(0);
+}
+
+main().catch(e => { console.error(e); process.exit(1); });

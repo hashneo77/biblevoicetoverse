@@ -4,6 +4,9 @@ import { db } from '../firebase'
 
 const PIN_LENGTH = 6
 
+// Same mapping as the remote app. Key = PIN, value = Firebase path prefix.
+const SESSIONS_FALLBACK = { '123456': 'remote', '654321': 'session2' }
+
 export function LoginPage({ onAuth }) {
   const [digits, setDigits] = useState(Array(PIN_LENGTH).fill(''))
   const [error, setError] = useState('')
@@ -19,17 +22,17 @@ export function LoginPage({ onAuth }) {
     setLoading(true)
     setError('')
     try {
-      const snap = await get(ref(db, 'config/pin'))
-      const stored = snap.val() ?? '123456'
-      if (pin === String(stored)) {
-        onAuth()
+      let sessions = SESSIONS_FALLBACK
+      try {
+        const snap = await get(ref(db, 'config/sessions'))
+        if (snap.val()) sessions = snap.val()
+      } catch { /* use hardcoded fallback */ }
+      const sessionPrefix = sessions[pin]
+      if (sessionPrefix) {
+        onAuth(sessionPrefix)
       } else {
         triggerError('Incorrect PIN')
       }
-    } catch {
-      // Firebase read failed — fall back to default PIN
-      if (enteredPin === '123456') onAuth()
-      else triggerError('Incorrect PIN')
     } finally {
       setLoading(false)
     }

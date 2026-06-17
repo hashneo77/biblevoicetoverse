@@ -18,6 +18,10 @@ export function Header({
   onSelectVerse,
   onAiSearch,
   aiLoading,
+  songs,
+  onSelectSong,
+  onSongAiSearch,
+  songAiLoading,
 }) {
   // Compact base — tighter on mobile, roomier on sm+
   const btnBase = `
@@ -112,6 +116,10 @@ export function Header({
             onAiSearch={onAiSearch}
             aiLoading={aiLoading}
             isDark={isDark}
+            songs={songs}
+            onSelectSong={onSelectSong}
+            onSongAiSearch={onSongAiSearch}
+            songAiLoading={songAiLoading}
           />
         </div>
 
@@ -126,6 +134,10 @@ export function Header({
           onAiSearch={onAiSearch}
           aiLoading={aiLoading}
           isDark={isDark}
+          songs={songs}
+          onSelectSong={onSelectSong}
+          onSongAiSearch={onSongAiSearch}
+          songAiLoading={songAiLoading}
         />
       </div>
     </header>
