@@ -70,14 +70,6 @@ export const VerseStage = forwardRef(function VerseStage(
       {/* All visible content above the bg image */}
       <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>
 
-      {/* Recording pill */}
-      {isRecording && (
-        <div className="absolute top-3 right-14 sm:top-4 sm:right-16 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-xs font-semibold rec-pulse select-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-white" />
-          REC
-        </div>
-      )}
-
       {/* Song save button — only shown after an edit */}
       {isSongMode && songHasEdits && (
         <button
@@ -123,7 +115,14 @@ export const VerseStage = forwardRef(function VerseStage(
       ) : mediaHtml ? (
         <div
           className={`leading-relaxed font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}
-          style={{ fontSize: fontSize + 'px', lineHeight: 1.55, width: '100%' }}
+          style={{
+            fontSize: fontSize + 'px',
+            lineHeight: 1.55,
+            width: '100%',
+            textShadow: isDark
+              ? '0 0 10px rgba(255,255,255,0.15), 0 0 24px rgba(251,191,36,0.12), 0 2px 4px rgba(0,0,0,0.9)'
+              : '0 0 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.12)',
+          }}
           dangerouslySetInnerHTML={{ __html: mediaHtml }}
         />
       ) : (
@@ -133,7 +132,13 @@ export const VerseStage = forwardRef(function VerseStage(
           className={`font-verse font-extrabold underline underline-offset-4 mb-4 sm:mb-5 tracking-wide ${
             isDark ? 'text-amber-300' : 'text-blue-800'
           }`}
-          style={{ fontSize: Math.max(20, fontSize * 1.15) + 'px' }}
+          style={{
+            fontSize: `min(${Math.max(20, fontSize * 1.15)}px, 10vw)`,
+            overflowWrap: 'anywhere',
+            textShadow: isDark
+              ? '0 0 8px rgba(251,191,36,0.4), 0 0 20px rgba(251,191,36,0.15), 0 1px 3px rgba(0,0,0,0.9)'
+              : '0 0 6px rgba(37,99,235,0.25), 0 0 14px rgba(37,99,235,0.1), 0 1px 2px rgba(0,0,0,0.15)',
+          }}
         >
           {verseRef}
         </div>
@@ -150,7 +155,13 @@ export const VerseStage = forwardRef(function VerseStage(
             ${isMalayalam ? 'font-malayalam' : 'font-verse'}
             ${isDark ? 'text-slate-100' : 'text-slate-800'}
           `}
-          style={{ fontSize: fontSize + 'px', lineHeight: 1.55 }}
+          style={{
+            fontSize: `min(${fontSize}px, 9vw)`,
+            lineHeight: 1.55,
+            textShadow: isDark
+              ? '0 0 10px rgba(255,255,255,0.15), 0 0 24px rgba(251,191,36,0.12), 0 2px 4px rgba(0,0,0,0.9)'
+              : '0 0 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.12)',
+          }}
         />
       </div>
       )}

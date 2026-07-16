@@ -59,6 +59,65 @@ Return [] if nothing matches. Return ONLY the JSON array, no other text.`;
   }
 );
 
+exports.parseVoiceRef = onCall(
+  { secrets: [geminiKey] },
+  async (request) => {
+    const { transcript, bookNames } = request.data;
+    if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
+      throw new HttpsError('invalid-argument', 'transcript is required');
+    }
+
+    const genAI = new GoogleGenerativeAI(geminiKey.value());
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        thinkingConfig: { thinkingBudget: 0 },
+        maxOutputTokens: 150,
+        temperature: 0,
+      },
+    });
+
+    const books = Array.isArray(bookNames) && bookNames.length > 0
+      ? bookNames.join(', ')
+      : 'Genesis, Exodus, Psalms, Proverbs, Isaiah, Matthew, Mark, Luke, John, Acts, Romans, 1 Corinthians, Galatians, Ephesians, Philippians, Colossians, Hebrews, James, Revelation';
+
+    const prompt = `You are a Bible reference parser. The user spoke a Bible verse reference using voice input. The speech may be in English, Malayalam, Manglish (romanized Malayalam), or a mix.
+
+Extract the Bible book, chapter, and verse from this transcript.
+
+Transcript: "${transcript.trim()}"
+
+Rules:
+- Return the book name in ENGLISH, using ONLY names from this list: ${books}
+- Malayalam book names must be mapped to their English equivalent (e.g. ഉല്പത്തി → Genesis, യോഹന്നാൻ → John, സങ്കീർത്തനങ്ങൾ → Psalms)
+- If the transcript says a chapter but no verse, default verse to 1
+- If you cannot identify a valid Bible reference, return null
+
+Return ONLY a JSON object: {"book":"English Name","chapter":1,"verse":1}
+Or null if not parseable. No other text.`;
+
+    try {
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text().trim();
+      if (raw === 'null' || raw === '{}') return { ref: null };
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start === -1 || end === -1) return { ref: null };
+      const parsed = JSON.parse(raw.slice(start, end + 1));
+      if (!parsed?.book || !parsed?.chapter) return { ref: null };
+      return {
+        ref: {
+          book: parsed.book,
+          chapter: Number(parsed.chapter),
+          verse: Number(parsed.verse) || 1,
+        },
+      };
+    } catch (e) {
+      throw new HttpsError('internal', 'Voice parse failed: ' + e.message);
+    }
+  }
+);
+
 exports.searchVerses = onCall(
   { secrets: [geminiKey], minInstances: 1 },
   async (request) => {

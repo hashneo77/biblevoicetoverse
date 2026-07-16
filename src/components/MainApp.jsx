@@ -68,7 +68,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
   const P = sessionPrefix
   const RECENT_ITEMS_PATH = `${P}/recentItems`
 
-  const [displayMode, setDisplayMode] = useState('EN')
+  const [displayMode, setDisplayMode] = useState('ML')
   const [bibleEN, setBibleEN] = useState(null)
   const [bibleML, setBibleML] = useState(null)
   const [bookAliases, setBookAliases] = useState({})
@@ -152,6 +152,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           fbKey,
         }))
         .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+        .filter((item, idx, arr) => arr.findIndex(i => i.key === item.key) === idx)
         .slice(0, 100)
       setRecentVerses(list)
     })
@@ -374,7 +375,24 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     setMediaHtml(null)
     const { displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     const store = dm === 'ML' ? ml : en
-    const { text, resolvedBook } = lookupVerse(store, parsed.book, parsed.chapter, parsed.verse)
+    const altStore = dm === 'ML' ? en : ml
+    let { text, resolvedBook } = lookupVerse(store, parsed.book, parsed.chapter, parsed.verse)
+    if (!text && altStore) {
+      const alt = lookupVerse(altStore, parsed.book, parsed.chapter, parsed.verse)
+      if (alt.text) {
+        const fbKey = altStore.nameToFirebaseKey?.[alt.resolvedBook]
+        const primaryBook = fbKey && store?.nameToFirebaseKey
+          ? Object.keys(store.nameToFirebaseKey).find(k => store.nameToFirebaseKey[k] === fbKey)
+          : null
+        if (primaryBook) {
+          const primary = lookupVerse(store, primaryBook, parsed.chapter, parsed.verse)
+          if (primary.text) { text = primary.text; resolvedBook = primary.resolvedBook }
+          else { text = alt.text; resolvedBook = alt.resolvedBook }
+        } else {
+          text = alt.text; resolvedBook = alt.resolvedBook
+        }
+      }
+    }
 
     if (text) {
       const label = `${resolvedBook} ${parsed.chapter}:${parsed.verse}`
@@ -549,6 +567,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
   // AI semantic search
   const searchVersesCallable = useMemo(() => httpsCallable(functions, 'searchVerses'), [])
   const searchSongsCallable = useMemo(() => httpsCallable(functions, 'searchSongs'), [])
+  const parseVoiceRefCallable = useMemo(() => httpsCallable(functions, 'parseVoiceRef'), [])
 
   const handleAiSearch = async (query) => {
     const { bibleEN: en, bibleML: ml } = stateRef.current
@@ -745,13 +764,24 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     }
   }, [])
 
-  // Speech recognition
+  // Speech recognition — language follows display mode
+  const speechLang = displayMode === 'ML' ? 'ml-IN' : 'en-US'
   const { isListening, transcript, toggle: toggleSpeech, supported: speechSupported } =
     useSpeechRecognition({
-      onResult: text => {
+      lang: speechLang,
+      onResult: async text => {
         const parsed = parseReference(text, bookAliases)
-        if (parsed) showVerseRef.current(parsed)
-        else setStatus('Could not parse: ' + text)
+        if (parsed) { showVerseRef.current(parsed); return }
+        setStatus('Parsing voice with AI…')
+        try {
+          const { bibleEN: en } = stateRef.current
+          const bookNames = en ? Object.keys(en.data) : []
+          const result = await parseVoiceRefCallable({ transcript: text, bookNames })
+          if (result.data?.ref) showVerseRef.current(result.data.ref)
+          else setStatus('Could not parse: ' + text)
+        } catch {
+          setStatus('Could not parse: ' + text)
+        }
       },
       onError: err => setStatus('Speech error: ' + err),
     })

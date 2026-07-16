@@ -1,14 +1,16 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 
-export function useSpeechRecognition({ onResult, onError } = {}) {
+export function useSpeechRecognition({ onResult, onError, lang = 'en-US' } = {}) {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const recogRef = useRef(null)
   const onResultRef = useRef(onResult)
   const onErrorRef = useRef(onError)
+  const langRef = useRef(lang)
 
   useEffect(() => { onResultRef.current = onResult }, [onResult])
   useEffect(() => { onErrorRef.current = onError }, [onError])
+  useEffect(() => { langRef.current = lang }, [lang])
 
   const supported =
     typeof window !== 'undefined' &&
@@ -18,7 +20,7 @@ export function useSpeechRecognition({ onResult, onError } = {}) {
     if (!supported || recogRef.current) return
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     const r = new SR()
-    r.lang = 'en-US'
+    r.lang = langRef.current
     r.interimResults = true
     r.continuous = true
     r.maxAlternatives = 1

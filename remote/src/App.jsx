@@ -165,6 +165,7 @@ export default function App() {
 
   const [view, setView] = useState('testament');
   const [testament, setTestament] = useState(null);
+  const [bookSearch, setBookSearch] = useState('');
   const [selectedBook, setSelectedBook] = useState(null);
   const [selectedBookKey, setSelectedBookKey] = useState(null);
   const [chapters, setChapters] = useState([]);
@@ -184,6 +185,7 @@ export default function App() {
 
   const [sent, setSent] = useState(null);
   const [error, setError] = useState(null);
+  const [frozen, setFrozen] = useState(false);
 
   // Recently sent items — synced via Firebase shared with the main webapp
   const RECENT_ITEMS_PATH = `${P}/recentItems`;
@@ -545,7 +547,7 @@ export default function App() {
       .filter(Boolean);
   };
 
-  const selectTestament = (t) => { setTestament(t); setView('books'); };
+  const selectTestament = (t) => { setTestament(t); setView('books'); setBookSearch(''); };
 
   const selectBook = async (name) => {
     const key = nameToKey[name];
@@ -838,7 +840,7 @@ export default function App() {
       <header className="app-header">
         <div className="header-left">
           {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView) && (
-            <button className="icon-btn" onClick={goBack} aria-label="Back">
+            <button className="icon-btn" onClick={goBack} aria-label="Back" disabled={frozen}>
               <ChevronLeft />
             </button>
           )}
@@ -846,7 +848,7 @@ export default function App() {
         </div>
         <div className="header-right">
           {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView) && (
-            <button className="icon-btn" onClick={goHome} aria-label="Home">
+            <button className="icon-btn" onClick={goHome} aria-label="Home" disabled={frozen}>
               <HomeIcon />
             </button>
           )}
@@ -855,10 +857,10 @@ export default function App() {
 
       {/* Floating settings bar */}
       <div className="settings-bar">
-        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('prev') : sendNav('prev')} aria-label="Previous">
+        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('prev') : sendNav('prev')} aria-label="Previous" disabled={frozen}>
           <ChevronLeft small />
         </button>
-        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('next') : sendNav('next')} aria-label="Next">
+        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('next') : sendNav('next')} aria-label="Next" disabled={frozen}>
           <ChevronRight small />
         </button>
         <button
@@ -866,6 +868,7 @@ export default function App() {
           onClick={goToLive}
           aria-label="Go to current slide"
           title="Go to current slide"
+          disabled={frozen}
         >
           <LocateIcon />
         </button>
@@ -873,27 +876,44 @@ export default function App() {
           className="settings-btn icon-only"
           onClick={() => sendSetting('fullscreen', { ts: Date.now() })}
           aria-label="Toggle fullscreen"
+          disabled={frozen}
         >
           <FullscreenIcon />
         </button>
         <div className="settings-row-break" />
-        <button className={`settings-btn lang-btn${language === 'ML' ? ' active' : ''}`} onClick={toggleLanguage}>
+        <button className={`settings-btn lang-btn${language === 'ML' ? ' active' : ''}`} onClick={toggleLanguage} disabled={frozen}>
           {language}
         </button>
         <div className="settings-divider" />
-        <button className="settings-btn font-btn" onClick={() => sendFontSize(-1)} aria-label="Decrease font">
+        <button className="settings-btn font-btn" onClick={() => sendFontSize(-1)} aria-label="Decrease font" disabled={frozen}>
           A<span className="font-sub">−</span>
         </button>
-        <button className="settings-btn font-btn" onClick={() => sendFontSize(1)} aria-label="Increase font">
+        <button className="settings-btn font-btn" onClick={() => sendFontSize(1)} aria-label="Increase font" disabled={frozen}>
           A<span className="font-sup">+</span>
         </button>
         <div className="settings-divider" />
-        <button className="settings-btn" onClick={toggleTheme} aria-label="Toggle theme">
+        <button className="settings-btn" onClick={toggleTheme} aria-label="Toggle theme" disabled={frozen}>
           {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        </button>
+        <div className="settings-divider" />
+        <button
+          className={`settings-btn freeze-btn${frozen ? ' freeze-btn-on' : ''}`}
+          onClick={() => setFrozen(f => !f)}
+          aria-label={frozen ? 'Unfreeze' : 'Freeze'}
+          title={frozen ? 'Unfreeze controls' : 'Freeze controls'}
+        >
+          <LockIcon locked={frozen} />
         </button>
       </div>
 
       <main className="app-main">
+        {frozen && (
+          <div className="freeze-overlay">
+            <LockIcon locked size={28} />
+            <span className="freeze-overlay-label">Frozen</span>
+            <span className="freeze-overlay-hint">Tap the lock button to unfreeze</span>
+          </div>
+        )}
         {error && (
           <div className="error-banner" onClick={() => setError(null)}>
             {error} · tap to dismiss
@@ -1378,19 +1398,34 @@ export default function App() {
 
         {/* ── Book list ── */}
         {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'books' && (
-          <ul className="book-list">
-            {getBooksForTestament(testament).map(b => (
-              <li key={b.key}>
-                <button className="book-btn" onClick={() => selectBook(b.name)}>
-                  <span className="book-btn-names">
-                    <span className="book-name-en">{b.name}</span>
-                    {b.nameML && <span className="book-name-ml">{b.nameML}</span>}
-                  </span>
-                  <ChevronRight />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="book-list-wrap">
+            <input
+              className="book-search-input"
+              type="text"
+              placeholder="Search books…"
+              value={bookSearch}
+              onChange={e => setBookSearch(e.target.value)}
+              autoComplete="off"
+            />
+            <ul className="book-list">
+              {getBooksForTestament(testament)
+                .filter(b => {
+                  const q = bookSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return b.name.toLowerCase().includes(q) || (b.nameML && b.nameML.includes(bookSearch.trim()));
+                })
+                .map(b => (
+                  <li key={b.key}>
+                    <button className="book-btn" onClick={() => selectBook(b.name)}>
+                      <span className="book-btn-names">
+                        <span className="book-name-en">{b.name}</span>
+                        {b.nameML && <span className="book-name-ml">{b.nameML}</span>}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+          </div>
         )}
 
         {/* ── Chapter picker ── */}
@@ -1642,4 +1677,9 @@ function SunIcon() {
 }
 function MoonIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>;
+}
+function LockIcon({ locked, size = 17 }) {
+  return locked
+    ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    : <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>;
 }
