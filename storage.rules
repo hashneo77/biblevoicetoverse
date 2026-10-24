@@ -1,17 +1,55 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Only allowed accounts: the owner, or users with the `allowed` claim set by the
+    // syncAccess Cloud Function from the database allow-list (config/access).
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && (request.auth.token.email == 'josephgeorge7797@gmail.com' || request.auth.token.allowed == true);
+    }
+
+    // Image uploads from the remote: `<timestamp>-<random>.<ext>`, images only, max 20 MB
+    function isNewImage(filename) {
+      return allowed()
+        && filename.matches('[0-9]{13}-[a-z0-9]+[.][A-Za-z0-9]{1,5}')
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Song lyrics (Malayalam .txt and .manglish.txt): edits to existing files only
     match /lyrics-text/{filename} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if allowed();
+      allow update: if allowed()
+        && filename.matches('.*[.]txt')
+        && request.resource.size < 200 * 1024
+        && request.resource.contentType.matches('text/plain.*');
     }
     match /media/{filename} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if allowed();
+      allow create: if isNewImage(filename);
+      allow delete: if allowed();
+    }
+    // Slide decks from the remote: slides/<timestamp>-<random>/NNN.<ext>, images only, max 20 MB each
+    match /slides/{deckId}/{filename} {
+      allow read: if allowed();
+      allow create: if allowed()
+        && deckId.matches('[0-9]{13}-[a-z0-9]+')
+        && filename.matches('[0-9]{3}[.][a-z]{3,4}')
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if allowed();
+    }
+    // Event frame logos (uploaded by the owner from the remote)
+    match /event-frame/{filename} {
+      allow read: if allowed();
+      allow create: if isNewImage(filename);
+      allow delete: if allowed();
     }
     match /holy-mass/{filename} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if allowed();
+      allow create: if isNewImage(filename);
+      allow delete: if allowed();
     }
   }
 }

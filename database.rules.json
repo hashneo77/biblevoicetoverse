@@ -1,28 +1,37 @@
 {
   "rules": {
     "english": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
     },
     "malayalam": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
     },
-    "config": {
-      ".read": true,
-      ".write": false
+    "bibleVersion": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
     },
-    "remote": {
-      ".read": true,
-      ".write": true
+    "holyMass": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
     },
     "ccc": {
-      ".read": true,
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
       ".write": false
     },
+    "config": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'",
+      "access": {
+        "$emailKey": {
+          ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase().replace('.', ',') == $emailKey"
+        }
+      }
+    },
     "$session": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || ($session == 'u_' + auth.token.email.toLowerCase().replace('.', ',') && root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists()))",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || ($session == 'u_' + auth.token.email.toLowerCase().replace('.', ',') && root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists()))"
     }
   }
 }

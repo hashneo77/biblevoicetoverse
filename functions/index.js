@@ -2,14 +2,76 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const { defineSecret } = require('firebase-functions/params');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const admin = require('firebase-admin');
 
 setGlobalOptions({ region: 'us-central1' });
+admin.initializeApp();
+
+// ── Access: the owner + emails listed under config/access in the Realtime Database ──
+const OWNER_EMAIL = 'josephgeorge7797@gmail.com';
+const emailKey = email => email.trim().toLowerCase().replace(/\./g, ',');
+
+async function isAllowedEmail(email) {
+  if (!email) return false;
+  if (email.toLowerCase() === OWNER_EMAIL) return true;
+  const snap = await admin.database().ref(`config/access/${emailKey(email)}`).get();
+  return snap.exists();
+}
+
+// Every function requires a signed-in, verified Google account on the allow-list.
+async function requireAllowed(request) {
+  const token = request.auth?.token;
+  if (!token || !token.email_verified || !(await isAllowedEmail(token.email))) {
+    throw new HttpsError('permission-denied', 'This account does not have access.');
+  }
+  return token.email.toLowerCase();
+}
+
+// Sets the `allowed` custom claim that Storage rules check (Storage can't read the allow-list).
+// The apps call this after sign-in, then refresh their ID token.
+exports.syncAccess = onCall(async (request) => {
+  const token = request.auth?.token;
+  if (!token) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const allowed = !!token.email_verified && (await isAllowedEmail(token.email));
+  await admin.auth().setCustomUserClaims(request.auth.uid, { allowed });
+  return { allowed };
+});
+
+// Owner only: add or remove an allowed email. Removing also clears the claim and signs them out.
+exports.manageAccess = onCall(async (request) => {
+  const token = request.auth?.token;
+  if (!token || !token.email_verified || token.email.toLowerCase() !== OWNER_EMAIL) {
+    throw new HttpsError('permission-denied', 'Only the owner can manage access.');
+  }
+  const email = String(request.data?.email || '').trim().toLowerCase();
+  const action = request.data?.action;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email === OWNER_EMAIL) {
+    throw new HttpsError('invalid-argument', 'Enter a valid email (not the owner).');
+  }
+  const ref = admin.database().ref(`config/access/${emailKey(email)}`);
+  if (action === 'add') {
+    await ref.set({ email, addedAt: Date.now() });
+  } else if (action === 'remove') {
+    await ref.remove();
+    try {
+      const user = await admin.auth().getUserByEmail(email);
+      await admin.auth().setCustomUserClaims(user.uid, { allowed: false });
+      await admin.auth().revokeRefreshTokens(user.uid);
+    } catch (e) {
+      if (e.code !== 'auth/user-not-found') throw e;
+    }
+  } else {
+    throw new HttpsError('invalid-argument', "action must be 'add' or 'remove'");
+  }
+  return { ok: true };
+});
 
 const geminiKey = defineSecret('GEMINI_API_KEY');
 
 exports.searchSongs = onCall(
   { secrets: [geminiKey] },
   async (request) => {
+    await requireAllowed(request);
     const { query, songs } = request.data;
     if (!query || typeof query !== 'string' || !query.trim()) {
       throw new HttpsError('invalid-argument', 'query is required');
@@ -62,6 +124,7 @@ Return [] if nothing matches. Return ONLY the JSON array, no other text.`;
 exports.parseVoiceRef = onCall(
   { secrets: [geminiKey] },
   async (request) => {
+    await requireAllowed(request);
     const { transcript, bookNames } = request.data;
     if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
       throw new HttpsError('invalid-argument', 'transcript is required');
@@ -121,6 +184,7 @@ Or null if not parseable. No other text.`;
 exports.searchVerses = onCall(
   { secrets: [geminiKey], minInstances: 1 },
   async (request) => {
+    await requireAllowed(request);
     const { query, bookNames, includeCCC } = request.data;
 
     if (!query || typeof query !== 'string' || !query.trim()) {

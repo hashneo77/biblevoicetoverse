@@ -1320,3 +1320,323 @@ html, body, #root {
   font-size: 13px;
   font-weight: 500;
 }
+
+/* ── Slides ── */
+.slides-testament-btn { border-color: #bfdbfe; }
+.slides-testament-btn .testament-label { color: #1d4ed8; }
+.slides-testament-btn:active { background: #eff6ff; }
+.slides-testament-btn svg { color: #1d4ed8; }
+
+.slides-upload-btn {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.slides-upload-btn:active { background: #dbeafe; }
+.slides-upload-btn-disabled { opacity: 0.5; pointer-events: none; }
+
+.slides-form .search-input { width: 100%; box-sizing: border-box; }
+.slides-form-files {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  overflow-wrap: anywhere;
+}
+
+.slides-tag-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+}
+.slides-tag-chip {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.slides-tag-chip-active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.slides-tag-chip-static {
+  align-self: flex-start;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: default;
+  background: #eff6ff;
+}
+
+.slides-deck-list { display: flex; flex-direction: column; gap: 10px; }
+.slides-deck-card {
+  display: flex;
+  align-items: stretch;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.slides-deck-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.slides-deck-thumb {
+  width: 96px;
+  aspect-ratio: 16/9;
+  flex-shrink: 0;
+  object-fit: contain;
+  background: #f3f4f6;
+  border-radius: 8px;
+}
+.slides-deck-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.slides-deck-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slides-deck-meta { font-size: 12px; color: #6b7280; }
+.slides-deck-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+}
+
+.slides-open-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.slides-thumb { aspect-ratio: 16/9; object-fit: contain; background: #f3f4f6; }
+
+/* ── Holy Mass: go to page ── */
+.holy-mass-goto-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.holy-mass-goto-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #991b1b;
+  white-space: nowrap;
+}
+.holy-mass-goto-input { min-width: 0; text-align: center; }
+.holy-mass-goto-btn:disabled { opacity: 0.5; }
+
+/* ── Holy Mass: whole-page thumbnails, page view with speaker parts ── */
+.holy-mass-grid:not(.slides-grid) .holy-mass-thumb {
+  aspect-ratio: 1441 / 1990;
+  object-fit: contain;
+  background: #fff;
+}
+.holy-mass-pagenav-btn { border-style: solid; }
+.holy-mass-pagenav-btn:disabled { opacity: 0.4; }
+.holy-mass-parts { display: flex; flex-direction: column; gap: 8px; }
+.holy-mass-part-btn {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.holy-mass-part-btn:active { background: #fef2f2; }
+.holy-mass-part-active { border: 2px solid #16a34a; background: #f0fdf4; }
+.holy-mass-part-num {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.holy-mass-part-active .holy-mass-part-num { background: #16a34a; color: #fff; }
+.holy-mass-part-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.holy-mass-part-role { font-size: 13px; font-weight: 700; color: #991b1b; }
+.holy-mass-part-text {
+  font-size: 14px;
+  color: #1f2937;
+  white-space: pre-line;  /* full text of the part, book line breaks kept */
+  overflow-wrap: anywhere;
+}
+.holy-mass-page-full {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  display: block;
+}
+
+/* a further screen of the same part, as split on the display */
+.holy-mass-part-cont { margin-left: 18px; width: calc(100% - 18px); }
+.holy-mass-part-num { width: auto; min-width: 26px; padding: 0 6px; }
+
+/* ── Account + allowed users (Settings) ── */
+.access-account-row, .access-user {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: 12px; border: 1px solid #e5e7eb; background: #fff;
+}
+.access-account-row { margin-bottom: 16px; }
+.access-email { font-size: 14px; color: #111827; overflow-wrap: anywhere; min-width: 0; }
+.access-signout-btn {
+  flex-shrink: 0; padding: 6px 12px; border-radius: 10px; border: 1px solid #d1d5db;
+  background: #f9fafb; color: #374151; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.access-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.access-owner-tag { font-size: 12px; font-weight: 700; color: #0f766e; }
+.access-add-row { display: flex; gap: 8px; margin-bottom: 6px; }
+.access-hint { font-size: 12px; color: #6b7280; margin: 0 0 18px; }
+.auth-btn {
+  width: 100%; padding: 14px 16px; margin-bottom: 12px; border: none; border-radius: 14px;
+  background: #fbbf24; color: #1e1b16; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.auth-btn:disabled { opacity: 0.5; }
+.auth-btn-secondary { background: transparent; border: 1px solid rgba(255,255,255,0.25); color: rgba(255,255,255,0.85); }
+
+.access-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.access-join-btn {
+  padding: 6px 12px; border-radius: 10px; border: 1px solid #0f766e; background: #f0fdfa;
+  color: #0f766e; font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+.access-joined { background: #0f766e; color: #fff; cursor: default; }
+
+/* ── Holy Mass favourite slides ── */
+.holy-mass-part-body { flex: 1; }
+.holy-mass-star {
+  flex-shrink: 0; align-self: flex-start; width: 34px; height: 34px; margin: -4px -4px 0 0;
+  border: none; border-radius: 999px; background: transparent; color: #9ca3af;
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.holy-mass-star-on { color: #f59e0b; }
+.holy-mass-part-fav { border-color: #fcd34d; }
+.holy-mass-add-row.holy-mass-fav-row { grid-template-columns: 1fr auto 1fr; align-items: center; }
+.holy-mass-fav-btn { border-style: solid; border-color: #f59e0b; color: #b45309; }
+.holy-mass-fav-count { flex-shrink: 0; font-size: 14px; font-weight: 700; color: #b45309; padding: 0 4px; }
+
+/* favourite page toggle */
+.holy-mass-card-footer .holy-mass-star { margin: 0; width: 32px; height: 32px; }
+.holy-mass-favpage-btn { border-style: solid; border-color: #fcd34d; background: #fffbeb; color: #b45309; }
+.holy-mass-favpage-on { background: #fef3c7; border-color: #f59e0b; }
+
+/* ── Mass plans ── */
+.mass-plans { margin-bottom: 14px; }
+.mass-plan-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin-bottom: 6px;
+  border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+.mass-plan-row-active { border: 2px solid #16a34a; background: #f0fdf4; }
+.mass-plan-name { flex: 1; min-width: 0; text-align: left; border: none; background: none; font-size: 15px;
+  font-weight: 700; color: #111827; cursor: pointer; overflow-wrap: anywhere; }
+.mass-plan-count { font-weight: 500; color: #6b7280; font-size: 13px; }
+.mass-plan-btn { flex-shrink: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid #d1d5db;
+  background: #f9fafb; color: #374151; font-size: 13px; font-weight: 700; cursor: pointer; }
+.mass-plan-btn:disabled { opacity: 0.4; }
+.mass-plan-btn-primary { border-color: #16a34a; background: #16a34a; color: #fff; }
+.mass-plan-btn-danger { border-color: #fca5a5; color: #b91c1c; background: #fef2f2; }
+.mass-plan-new { display: flex; gap: 8px; }
+.mass-plan-new .search-input { flex: 1; min-width: 0; }
+.mass-plan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.mass-plan-banner, .mass-plan-running { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px; border-radius: 12px; font-size: 14px; }
+.mass-plan-banner { background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a; }
+.mass-plan-running { background: #f0fdf4; border: 1px solid #86efac; color: #14532d; }
+.mass-plan-banner span, .mass-plan-running span { flex: 1; min-width: 0; }
+.mass-plan-tick { color: #2563eb; font-weight: 700; }
+.mass-plan-tick-on { color: #fff; background: #16a34a; }
+.mass-plan-item-tools { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.mass-plan-icon { width: 30px; height: 26px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;
+  color: #374151; font-size: 12px; cursor: pointer; }
+.mass-plan-icon:disabled { opacity: 0.3; }
+
+/* ── Holy Mass control row (under the settings bar) ── */
+.mass-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px;
+  padding: 6px 10px; background: #5b1220; border-top: 2px solid #d4a017;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.3); flex-shrink: 0;
+}
+.mass-bar-group {
+  display: flex; align-items: center; gap: 4px; padding: 3px 4px;
+  border-radius: 10px; background: rgba(255,255,255,0.08); margin: 0;
+}
+.mass-bar-label { color: #f5d77a; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 0 4px; }
+.mass-bar-btn {
+  height: 32px; min-width: 34px; padding: 0 8px; border: none; border-radius: 8px;
+  background: rgba(255,255,255,0.14); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+  white-space: nowrap;
+}
+.mass-bar-btn:active { background: rgba(255,255,255,0.3); }
+.mass-bar-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.mass-bar-page { min-width: 30px; text-align: center; color: #fff; font-weight: 700; font-size: 14px; }
+.mass-bar-star { color: #f5d77a; font-size: 18px; }
+.mass-bar-star-on { background: #d4a017; color: #5b1220; }
+.mass-bar-fav .mass-bar-btn { color: #f5d77a; }
+.mass-bar-count { color: #f5d77a; font-weight: 700; font-size: 13px; padding: 0 2px; }
+.mass-bar-input {
+  width: 62px; height: 32px; border: none; border-radius: 8px; padding: 0 6px; text-align: center;
+  font-size: 14px; color: #111827; background: #fff;
+}
+.mass-bar-go { background: #d4a017; color: #5b1220; }
+.mass-bar-clear { font-size: 13px; }
+.mass-bar-plan { background: #15803d; }
+.mass-bar-plan .mass-bar-btn { background: rgba(255,255,255,0.18); font-size: 13px; }
+.mass-bar-plan-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Event frame settings ── */
+.event-frame-box { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.event-frame-toggle { flex-shrink: 0; min-width: 64px; padding: 6px 12px; border-radius: 999px; border: 1px solid #d1d5db;
+  background: #f3f4f6; color: #374151; font-weight: 700; cursor: pointer; }
+.event-frame-toggle.on { background: #e0245e; border-color: #e0245e; color: #fff; }
+.event-frame-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #6b7280; }
+.event-frame-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── Event frame editor ── */
+.ef-toolbar { display: flex; flex-wrap: wrap; gap: 6px; }
+.ef-btn { display: inline-flex; align-items: center; padding: 7px 12px; border-radius: 10px; border: 1px solid #d1d5db;
+  background: #fff; color: #374151; font-size: 13px; font-weight: 700; cursor: pointer; }
+.ef-btn.ef-on { border-color: #d4a017; background: #fef9c3; color: #854d0e; }
+.ef-btn.ef-disabled { opacity: 0.5; }
+.ef-btn.ef-small { padding: 4px 8px; font-size: 12px; }
+.ef-btn.ef-danger { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; align-self: flex-start; }
+.ef-preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(180deg, #0b1022, #111827); touch-action: none; }
+.ef-preview-sample { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.35); font-size: 4cqw; font-weight: 700; pointer-events: none; container-type: size; }
+.ef-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid #93c5fd; border-radius: 12px; background: #eff6ff; }
+.ef-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ef-text { resize: vertical; font-family: inherit; }
+.ef-colour { display: flex; align-items: center; gap: 6px; }
+.ef-colour input[type=color] { width: 44px; height: 34px; border: none; background: none; padding: 0; }
+
+/* ── Theme picker ── */
+.theme-dot { display: inline-block; width: 20px; height: 20px; border-radius: 999px; border: 2px solid rgba(255,255,255,0.7); }
+.theme-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px;
+  padding: 10px; background: #0b1f4d; box-shadow: 0 3px 10px rgba(0,0,0,0.3); flex-shrink: 0; }
+.theme-swatch { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  height: 64px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.15); cursor: pointer; padding: 4px; }
+.theme-swatch.selected { border-color: #fbbf24; box-shadow: 0 0 0 2px #fbbf24; }
+.theme-swatch-text { font-size: 18px; font-weight: 800; line-height: 1; }
+.theme-swatch-ref { font-size: 11px; font-weight: 700; text-align: center; line-height: 1.1; }

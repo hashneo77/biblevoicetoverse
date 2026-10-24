@@ -1,22 +1,13 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { ref, set, push, onValue, get } from 'firebase/database';
+import { ref, set, push, onValue, get, update } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { ref as storageRef, getBytes, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, functions, storage, DB_URL } from './firebase';
+import { EventFrame, FRAME_FONTS, defaultFrameItems, frameItems } from './EventFrame';
+import { THEMES, getTheme } from './themes';
+import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut, GoogleAuthProvider } from 'firebase/auth';
+import { auth, db, functions, storage, DB_URL, OWNER_EMAIL, emailKey, sessionForEmail } from './firebase';
+import { convertToSlides, slideFileKind, SLIDE_ACCEPT } from './slideConvert';
 import './App.css';
-
-// PIN → Firebase path prefix mapping. '123456' keeps the existing 'remote' namespace
-// (backward compatible); '654321' uses a separate 'session2' namespace.
-const SESSIONS = { '123456': 'remote', '654321': 'session2' };
-const SESSION_KEY = 'bv_remote_session';
-const SESSION_TS_KEY = 'bv_remote_session_ts';
-const SESSION_MS = 10 * 60 * 60 * 1000; // 10 hours
-
-function getSavedSession() {
-  const ts = Number(localStorage.getItem(SESSION_TS_KEY) || 0);
-  if (Date.now() - ts > SESSION_MS) return null;
-  return localStorage.getItem(SESSION_KEY);
-}
 
 const OT_BOOKS = [
   'Genesis','Exodus','Leviticus','Numbers','Deuteronomy','Joshua','Judges','Ruth',
@@ -35,6 +26,12 @@ const NT_BOOKS = [
 ];
 
 const ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
+
+// Holy Mass collections: page lists shared by every PIN session (not under <session>/)
+const HOLY_MASS_SECTIONS = {
+  ml: { label: 'Malayalam Mass', path: 'holyMass/malayalam', lang: 'ML' },
+  en: { label: 'Manglish Mass', path: 'holyMass/manglish', lang: 'EN' },
+};
 
 // Malayalam book names, keyed by the exact English names used above.
 // NOTE: the Malayalam Bible in Firebase uses the same b1..b73 key scheme as the
@@ -118,8 +115,11 @@ const BOOK_NAME_ML = {
 };
 
 const restFetch = async (path, shallow = false) => {
-  const qs = shallow ? '?shallow=true' : '';
-  const res = await fetch(`${DB_URL}/${path}.json${qs}`);
+  const token = await auth.currentUser?.getIdToken();  // database reads require an allowed account
+  const params = new URLSearchParams();
+  if (shallow) params.set('shallow', 'true');
+  if (token) params.set('auth', token);
+  const res = await fetch(`${DB_URL}/${path}.json?${params}`);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   return res.json();
 };
@@ -147,21 +147,65 @@ function parseLyrics(content) {
   return { title, slides };
 }
 
+// The owner can join any user's session; their pick is remembered on this device.
+const OWNER_SESSION_KEY = 'bv_owner_session'
+function ownerSession() {
+  try { return localStorage.getItem(OWNER_SESSION_KEY) || 'remote' } catch { return 'remote' }
+}
+function rememberOwnerSession(session) {
+  try { localStorage.setItem(OWNER_SESSION_KEY, session) } catch { /* private mode */ }
+}
+
+// ── Sign-in gate: Google account; the owner + emails listed under config/access.
+// Each user has a private session, shared by their own display and remote.
+async function syncClaims(user) {
+  try {
+    await httpsCallable(functions, 'syncAccess')();
+    await user.getIdToken(true);
+  } catch { /* Storage may refuse until next sign-in; the database still works */ }
+}
+
+async function resolveAccess(user) {
+  const access = await checkAccess(user);
+  if (access.status === 'allowed') await syncClaims(user);
+  return access;
+}
+
+async function checkAccess(user) {
+  if (!user) return { status: 'signedOut' };
+  const email = (user.email || '').toLowerCase();
+  if (!user.emailVerified) return { status: 'denied', email };
+  if (email === OWNER_EMAIL) return { status: 'allowed', email, session: ownerSession(), isOwner: true };
+  try {
+    const snap = await get(ref(db, `config/access/${emailKey(email)}`));
+    return snap.exists() ? { status: 'allowed', email, session: sessionForEmail(email) } : { status: 'denied', email };
+  } catch {
+    return { status: 'denied', email };
+  }
+}
+
 export default function App() {
-  const [sessionPrefix, setSessionPrefix] = useState(() => getSavedSession());
+  const [access, setAccess] = useState({ status: 'checking' });
+  useEffect(() => onAuthStateChanged(auth, async user => setAccess(await resolveAccess(user))), []);
+  const switchSession = (session) => { rememberOwnerSession(session); setAccess(a => ({ ...a, session })); };
+  if (access.status !== 'allowed') return <GoogleLogin access={access} />;
+  return (
+    <RemoteApp
+      key={access.session} sessionPrefix={access.session} userEmail={access.email}
+      isOwner={!!access.isOwner} onSwitchSession={access.isOwner ? switchSession : null}
+    />
+  );
+}
 
+function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   // Short alias — all Firebase paths use this prefix instead of hard-coded 'remote'
-  const P = sessionPrefix || 'remote';
-
-  const signOut = () => {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(SESSION_TS_KEY);
-    setSessionPrefix(null);
-  };
+  const P = sessionPrefix;
+  const signOut = () => fbSignOut(auth);
 
   const [allBooks, setAllBooks] = useState([]);
   const [booksLoading, setBooksLoading] = useState(true);
   const [nameToKey, setNameToKey] = useState({});
+  const [nameToKeyML, setNameToKeyML] = useState({});
 
   const [view, setView] = useState('testament');
   const [testament, setTestament] = useState(null);
@@ -207,8 +251,17 @@ export default function App() {
     push(ref(db, RECENT_ITEMS_PATH), { ...item, ts: Date.now() });
   };
 
-  const [language, setLanguage] = useState('EN');
+  const [language, setLanguage] = useState('ML');
   const [theme, setTheme] = useState('light');
+  const [themeMenu, setThemeMenu] = useState(false);   // theme picker open
+
+  // Follow the session's language (the display resets it to ML when it opens)
+  useEffect(() => {
+    return onValue(ref(db, `${P}/settings/language`), snap => {
+      const val = snap.val();
+      if (val === 'EN' || val === 'ML') setLanguage(val);
+    });
+  }, []);
 
   // AI search — calls searchVerses Cloud Function directly (same as the web app)
   const searchVersesCallable = useMemo(() => httpsCallable(functions, 'searchVerses'), []);
@@ -254,9 +307,32 @@ export default function App() {
 
   // Holy Mass
   const [holyMassView, setHolyMassView] = useState(false);
-  const [holyMassLibrary, setHolyMassLibrary] = useState([]);
+  const [holyMassSection, setHolyMassSection] = useState(null); // null = Holy Mass menu; else a HOLY_MASS_SECTIONS key
+  const [holyMassLibraries, setHolyMassLibraries] = useState({ ml: [], en: [] });
+  const holyMassLibrary = holyMassLibraries[holyMassSection] || [];
   const [holyMassUploading, setHolyMassUploading] = useState(false);
   const [activeHolyMassKey, setActiveHolyMassKey] = useState(null);
+  const [holyMassPageInput, setHolyMassPageInput] = useState('');
+  const [holyMassOpenKey, setHolyMassOpenKey] = useState(null);      // page whose speaker parts are listed
+  const [activeHolyMassPart, setActiveHolyMassPart] = useState(0);   // part of the active page on the display
+  const [activeHolyMassSlide, setActiveHolyMassSlide] = useState(0); // slide of that part on the display
+  // Favourite Holy Mass pages, per session and per Mass: { ml: { page_028: ts }, en: {...} }
+  const [massFavPages, setMassFavPages] = useState({});
+  // Mass plans: named running orders of slides, per session: { id: { name, section, path, items: [{key, part, slide}], ts } }
+  const [massPlans, setMassPlans] = useState({});
+  const [activePlanId, setActivePlanId] = useState(null);   // plan ◀ ▶ follow on the display
+  const [planViewId, setPlanViewId] = useState(null);       // plan whose slide list is open
+  const [planEditId, setPlanEditId] = useState(null);       // plan being filled with ＋ on slides
+  const [newPlanName, setNewPlanName] = useState('');
+
+  // Slides: decks made from a PDF / PowerPoint / images, tagged, sent one slide at a time
+  const [slidesView, setSlidesView] = useState(false);
+  const [slideDecks, setSlideDecks] = useState([]);
+  const [openDeckKey, setOpenDeckKey] = useState(null);
+  const [activeSlide, setActiveSlide] = useState(null); // { deckKey, idx }
+  const [slideTagFilter, setSlideTagFilter] = useState('');
+  const [deckDraft, setDeckDraft] = useState(null); // { files?, editKey?, name, tag, author }
+  const [slideProgress, setSlideProgress] = useState(null);
   const [showTextForm, setShowTextForm] = useState(false);
   const [editingMediaKey, setEditingMediaKey] = useState(null);
   const textEditorRef = useRef(null);
@@ -319,12 +395,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    return onValue(ref(db, `${P}/holyMassLibrary`), snap => {
+    const unsubs = Object.entries(HOLY_MASS_SECTIONS).map(([section, { path }]) =>
+      onValue(ref(db, path), snap => {
+        const val = snap.val() || {};
+        const items = Object.entries(val)
+          .map(([key, data]) => ({ key, ...data }))
+          .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        setHolyMassLibraries(prev => ({ ...prev, [section]: items }));
+      }));
+    return () => unsubs.forEach(u => u());
+  }, []);
+
+  useEffect(() => {
+    return onValue(ref(db, `${P}/slideDecks`), snap => {
       const val = snap.val() || {};
-      const items = Object.entries(val)
-        .map(([key, data]) => ({ key, ...data }))
-        .sort((a, b) => (a.ts || 0) - (b.ts || 0));
-      setHolyMassLibrary(items);
+      const decks = Object.entries(val)
+        .map(([key, data]) => ({ key, ...data, slides: data.slides || [] }))
+        .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      setSlideDecks(decks);
     });
   }, []);
 
@@ -367,7 +455,7 @@ export default function App() {
     try {
       const payload = item.type === 'text'
         ? { type: 'text', html: item.html || item.text, text: item.text, ts: Date.now() }
-        : { type: 'image', url: item.url, name: item.name, ts: Date.now() };
+        : { type: 'image', url: item.url, name: item.name, ts: Date.now(), ...(item.seq ? { seq: item.seq } : {}) };
       await set(ref(db, `${P}/currentMedia`), payload);
       const label = item.type === 'text' ? item.text.slice(0, 30) : item.name;
       setSent(label);
@@ -390,16 +478,21 @@ export default function App() {
     } catch (e) { setError('Delete failed: ' + e.message); }
   };
 
-  const uploadHolyMass = async (file) => {
-    if (!file) return;
+  // Upload one or more pages to the open Mass, in filename order (page_001, page_002, …)
+  const uploadHolyMass = async (fileList) => {
+    const files = [...(fileList || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const section = HOLY_MASS_SECTIONS[holyMassSection];
+    if (!files.length || !section) return;
     setHolyMassUploading(true);
     try {
-      const ext = file.name.split('.').pop();
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const fileRef = storageRef(storage, `holy-mass/${filename}`);
-      await uploadBytes(fileRef, file, { contentType: file.type });
-      const url = await getDownloadURL(fileRef);
-      await push(ref(db, `${P}/holyMassLibrary`), { type: 'image', url, name: file.name, ts: Date.now() });
+      for (const file of files) {
+        const ext = file.name.split('.').pop();
+        const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const fileRef = storageRef(storage, `holy-mass/${filename}`);
+        await uploadBytes(fileRef, file, { contentType: file.type });
+        const url = await getDownloadURL(fileRef);
+        await push(ref(db, section.path), { type: 'image', url, name: file.name, ts: Date.now() });
+      }
     } catch (e) {
       setError('Upload failed: ' + e.message);
     } finally {
@@ -411,35 +504,333 @@ export default function App() {
     try {
       const path = decodeURIComponent(item.url.split('/o/')[1].split('?')[0]);
       await deleteObject(storageRef(storage, path));
-      await set(ref(db, `${P}/holyMassLibrary/${item.key}`), null);
+      await set(ref(db, `${HOLY_MASS_SECTIONS[holyMassSection].path}/${item.key}`), null);
       if (activeHolyMassKey === item.key) setActiveHolyMassKey(null);
     } catch (e) { setError('Delete failed: ' + e.message); }
   };
 
-  const sendHolyMassImage = async (item) => {
+  // seq lets the display's ◀ ▶ step through this Mass's pages
+  // A page's speaker parts that have words (rubric-only parts aren't shown on the display)
+  const holyMassTextParts = (item) => (item?.parts || []).filter(pt => pt.text);
+
+  // ── Mass plans ──
+  useEffect(() => onValue(ref(db, `${P}/massPlans`), snap => setMassPlans(snap.val() || {})), []);
+  useEffect(() => onValue(ref(db, `${P}/massActivePlan`), snap => setActivePlanId(snap.val() || null)), []);
+  const sectionPlans = Object.entries(massPlans)
+    .filter(([, pl]) => pl.section === holyMassSection)
+    .map(([id, pl]) => ({ id, ...pl, items: pl.items || [] }))
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const planById = (id) => sectionPlans.find(pl => pl.id === id) || null;
+  const planErr = e => setError('Could not save plan: ' + e.message);
+  const massOrder = (it) => [holyMassLibrary.findIndex(i => i.key === it.key), it.part, it.slide];
+  const before = (a, b) => { const x = massOrder(a), y = massOrder(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
+  const createPlan = async (e) => {
+    e.preventDefault();
+    const name = newPlanName.trim();
+    if (!name) return;
+    const r = push(ref(db, `${P}/massPlans`));
+    await set(r, { name, section: holyMassSection, path: HOLY_MASS_SECTIONS[holyMassSection].path, items: [], ts: Date.now() }).catch(planErr);
+    setNewPlanName('');
+    setPlanEditId(r.key);                                    // straight into adding slides
+  };
+  const savePlanItems = (id, items) => set(ref(db, `${P}/massPlans/${id}/items`), items).catch(planErr);
+  const inPlan = (pl, key, part, slide) => !!pl?.items.some(it => it.key === key && it.part === part && it.slide === slide);
+  const togglePlanItem = (key, part, slide) => {
+    const pl = planById(planEditId);
+    if (!pl) return;
+    const it = { key, part, slide };
+    if (inPlan(pl, key, part, slide)) {
+      savePlanItems(pl.id, pl.items.filter(x => !(x.key === key && x.part === part && x.slide === slide)));
+    } else {                                                 // insert in Mass order
+      const at = pl.items.findIndex(x => before(x, it) > 0);
+      const items = [...pl.items];
+      items.splice(at < 0 ? items.length : at, 0, it);
+      savePlanItems(pl.id, items);
+    }
+  };
+  const movePlanItem = (pl, i, d) => {
+    const items = [...pl.items];
+    if (i + d < 0 || i + d >= items.length) return;
+    [items[i], items[i + d]] = [items[i + d], items[i]];
+    savePlanItems(pl.id, items);
+  };
+  const removePlanItem = (pl, i) => savePlanItems(pl.id, pl.items.filter((_, j) => j !== i));
+  const planItemPage = (it) => holyMassLibrary.find(i => i.key === it.key);
+  const sendPlanItem = (it) => { const page = planItemPage(it); if (page) sendHolyMassPart(page, it.part, it.slide); };
+  const startPlan = (pl) => {
+    set(ref(db, `${P}/massActivePlan`), pl.id).catch(planErr);
+    if (pl.items[0]) sendPlanItem(pl.items[0]);
+  };
+  const stopPlan = () => set(ref(db, `${P}/massActivePlan`), null).catch(planErr);
+  const copyPlan = (pl) => {
+    const r = push(ref(db, `${P}/massPlans`));
+    set(r, { name: `${pl.name} (copy)`, section: pl.section, path: pl.path, items: pl.items, ts: Date.now() })
+      .then(() => setPlanViewId(r.key)).catch(planErr);
+  };
+  const deletePlan = (pl) => {
+    if (!window.confirm(`Delete the plan "${pl.name}"?`)) return;
+    if (activePlanId === pl.id) stopPlan();
+    set(ref(db, `${P}/massPlans/${pl.id}`), null).catch(planErr);
+    setPlanViewId(null);
+  };
+  const planItemInfo = (it) => {
+    const page = planItemPage(it);
+    const pt = page ? holyMassTextParts(page)[it.part] : null;
+    const slides = pt ? (pt.slides?.length ? pt.slides : [pt.text]) : [];
+    return {
+      page: page ? holyMassPageLabel(page, holyMassLibrary.indexOf(page)) : 'Missing page',
+      role: pt?.role || '',
+      text: (slides[it.slide] || '').split('\n')[0],
+    };
+  };
+  const editingPlan = planById(planEditId);
+  const runningPlan = planById(activePlanId);
+  const planEditBanner = editingPlan && (
+    <div className="mass-plan-banner">
+      <span>Adding to <b>{editingPlan.name}</b> · {editingPlan.items.length} slides — tap ＋ on slides</span>
+      <button className="mass-plan-btn mass-plan-btn-primary" onClick={() => { setPlanEditId(null); setHolyMassOpenKey(null); setPlanViewId(editingPlan.id); }}>Done</button>
+    </div>
+  );
+  const planRunningChip = runningPlan && !editingPlan && (
+    <div className="mass-plan-running">
+      <span>▶ Plan running: <b>{runningPlan.name}</b> — ◀ ▶ follow it</span>
+      <button className="mass-plan-btn" onClick={() => { setHolyMassOpenKey(null); setPlanViewId(runningPlan.id); }}>Open</button>
+      <button className="mass-plan-btn" onClick={stopPlan}>Stop</button>
+    </div>
+  );
+  const plansPanel = !editingPlan && (
+    <div className="mass-plans">
+      <p className="section-heading">Mass plans</p>
+      {sectionPlans.map(pl => (
+        <div key={pl.id} className={`mass-plan-row${activePlanId === pl.id ? ' mass-plan-row-active' : ''}`}>
+          <button className="mass-plan-name" onClick={() => setPlanViewId(pl.id)}>
+            {pl.name} <span className="mass-plan-count">· {pl.items.length} slides</span>
+          </button>
+          {activePlanId === pl.id
+            ? <button className="mass-plan-btn" onClick={stopPlan}>■ Stop</button>
+            : <button className="mass-plan-btn mass-plan-btn-primary" disabled={!pl.items.length} onClick={() => startPlan(pl)}>▶ Start</button>}
+        </div>
+      ))}
+      <form className="mass-plan-new" onSubmit={createPlan}>
+        <input className="search-input" placeholder="New plan name, e.g. Sunday Mass" value={newPlanName} onChange={e => setNewPlanName(e.target.value)} />
+        <button type="submit" className="search-go-btn" disabled={!newPlanName.trim()}>Create</button>
+      </form>
+    </div>
+  );
+
+  // ── Favourite pages: star a page, then jump between starred pages in page order ──
+  useEffect(() => onValue(ref(db, `${P}/massFavPages`), snap => setMassFavPages(snap.val() || {})), []);
+  const sectionFavPages = massFavPages[holyMassSection] || {};
+  const isFavPage = (key) => !!sectionFavPages[key];
+  const toggleFavPage = (key) => {
+    set(ref(db, `${P}/massFavPages/${holyMassSection}/${key}`), sectionFavPages[key] ? null : Date.now())
+      .catch(e => setError('Could not save favourite: ' + e.message));
+  };
+  const favPageIdxs = holyMassLibrary.map((item, i) => (sectionFavPages[item.key] ? i : -1)).filter(i => i >= 0);
+  // Next/Prev ★: from the page that's open (or on the display), open the next starred page and show its first slide
+  const gotoFavPage = (dir) => {
+    if (!favPageIdxs.length) return;
+    const cur = holyMassLibrary.findIndex(i => i.key === (holyMassOpenKey || activeHolyMassKey));
+    const targetIdx = dir > 0
+      ? (favPageIdxs.find(i => i > cur) ?? favPageIdxs[0])                          // wrap to the first
+      : ([...favPageIdxs].reverse().find(i => i < cur) ?? favPageIdxs[favPageIdxs.length - 1]);
+    const page = holyMassLibrary[targetIdx];
+    setHolyMassOpenKey(page.key);
+    sendHolyMassPart(page, 0, 0);
+  };
+  const favNav = favPageIdxs.length > 0 && (
+    <div className="holy-mass-add-row holy-mass-fav-row">
+      <button className="media-upload-btn holy-mass-fav-btn" onClick={() => gotoFavPage(-1)}>◀ Prev ★</button>
+      <span className="holy-mass-fav-count">★ {favPageIdxs.length}</span>
+      <button className="media-upload-btn holy-mass-fav-btn" onClick={() => gotoFavPage(1)}>Next ★ ▶</button>
+    </div>
+  );
+
+  // Sends one speaker part of a page to the display (speaker + words). A page without text goes
+  // as its image. seq lets the display's ◀ ▶ step through the part's screens, then parts, then pages.
+  const sendHolyMassPart = async (item, partIdx, slideIdx = 0) => {
     setActiveHolyMassKey(item.key);
-    await sendMedia(item);
+    setActiveHolyMassPart(partIdx);
+    const section = HOLY_MASS_SECTIONS[holyMassSection];
+    const name = holyMassSentName(item);
+    const seq = { kind: 'holyMass', path: section.path, key: item.key, part: partIdx, slide: slideIdx, title: section.label, lang: section.lang };
+    const part = holyMassTextParts(item)[partIdx];
+    if (!part) { await sendMedia({ ...item, name, seq }); return; }
+    const slideText = (part.slides?.length ? part.slides : [part.text])[slideIdx] ?? part.text;
+    try {
+      await set(ref(db, `${P}/currentMedia`), {
+        type: 'text', text: slideText, role: part.role || null,
+        label: name, lang: section.lang, ts: Date.now(), seq,
+      });
+      setSent(name);
+      setTimeout(() => setSent(null), 2000);
+    } catch (e) { setError('Send failed: ' + e.message); }
   };
 
-  const navigateHolyMass = (dir) => {
-    if (holyMassLibrary.length === 0) return;
-    const idx = activeHolyMassKey
-      ? holyMassLibrary.findIndex(i => i.key === activeHolyMassKey)
-      : -1;
-    const nextIdx = dir === 'prev'
-      ? Math.max(0, idx === -1 ? 0 : idx - 1)
-      : Math.min(holyMassLibrary.length - 1, idx + 1);
-    if (nextIdx !== idx || idx === -1) sendHolyMassImage(holyMassLibrary[nextIdx]);
+  // Follow pages/slides the display stepped to with its own ◀ ▶
+  useEffect(() => {
+    return onValue(ref(db, `${P}/currentMedia/seq`), snap => {
+      const seq = snap.val();
+      if (seq?.kind === 'holyMass') {
+        setActiveHolyMassKey(seq.key);
+        setActiveHolyMassPart(seq.part ?? 0);
+        setActiveHolyMassSlide(seq.slide ?? 0);
+        setHolyMassOpenKey(open => (open ? seq.key : open));
+      }
+      else if (seq?.kind === 'slides') setActiveSlide({ deckKey: seq.deckKey, idx: Number(seq.key) });
+    });
+  }, []);
+
+
+  // Jump straight to page N (1-based, in list order)
+  // Pages can carry the book's printed page number as `label` (e.g. PDF page 22 = page 8);
+  // without labels, page N is the Nth image in the list.
+  const holyMassHasLabels = holyMassLibrary.some(i => i.label !== undefined);
+  const holyMassNumbered = holyMassHasLabels
+    ? holyMassLibrary.map(i => Number(i.label)).filter(n => Number.isInteger(n) && n > 0)
+    : [];
+  const holyMassPageRange = holyMassHasLabels
+    ? (holyMassNumbered.length ? `${Math.min(...holyMassNumbered)}–${Math.max(...holyMassNumbered)}` : '')
+    : `1–${holyMassLibrary.length}`;
+  const holyMassPageLabel = (item, idx) =>
+    holyMassHasLabels ? (item.label ? `Page ${item.label}` : 'Unnumbered') : `${idx + 1} · ${item.name.replace(/\.[^.]+$/, '')}`;
+  const holyMassOpenPage = holyMassLibrary.find(i => i.key === holyMassOpenKey) || null;
+  const holyMassSentName = (item) =>
+    `${HOLY_MASS_SECTIONS[holyMassSection]?.label} · ${holyMassPageLabel(item, holyMassLibrary.findIndex(i => i.key === item.key))}`;
+
+  const gotoForm = (
+    <form
+      className="holy-mass-goto-row"
+      onSubmit={e => { e.preventDefault(); goToHolyMassPage(); }}
+    >
+      <label className="holy-mass-goto-label" htmlFor="holy-mass-goto">Go to page</label>
+      <input
+        id="holy-mass-goto"
+        className="search-input holy-mass-goto-input"
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        placeholder={holyMassPageRange}
+        value={holyMassPageInput}
+        onChange={e => setHolyMassPageInput(e.target.value.replace(/\D/g, ''))}
+      />
+      <button type="submit" className="search-go-btn holy-mass-goto-btn" disabled={!holyMassPageInput}>
+        Go
+      </button>
+    </form>
+  );
+
+  const goToHolyMassPage = () => {
+    const n = parseInt(holyMassPageInput, 10);
+    const target = holyMassHasLabels
+      ? holyMassLibrary.find(i => i.label === String(n))
+      : holyMassLibrary[n - 1];
+    if (!Number.isInteger(n) || !target) {
+      setError(`No page ${holyMassPageInput} — pages are ${holyMassPageRange}`);
+      return;
+    }
+    setHolyMassOpenKey(target.key);
+    setHolyMassPageInput('');
   };
 
   // Scroll active Holy Mass image into view when it changes
   useEffect(() => {
-    if (!activeHolyMassKey || !holyMassView) return;
+    if (!activeHolyMassKey || !holyMassView || !holyMassSection) return;
     requestAnimationFrame(() => {
       const el = document.querySelector('.holy-mass-active');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-  }, [activeHolyMassKey, holyMassView]);
+  }, [activeHolyMassKey, holyMassView, holyMassSection]);
+
+  // ── Slides ────────────────────────────────────────────────────────────────
+  const slideTags = useMemo(
+    () => [...new Set(slideDecks.map(d => d.tag).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [slideDecks]
+  );
+  const openDeck = slideDecks.find(d => d.key === openDeckKey) || null;
+  const visibleDecks = slideTagFilter ? slideDecks.filter(d => d.tag === slideTagFilter) : slideDecks;
+
+  const pickSlideFiles = (fileList) => {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
+    if (!slideFileKind(files)) { setError('Choose one PDF, one PowerPoint (.pptx), or one or more images'); return; }
+    setDeckDraft({
+      files,
+      name: files.length === 1 ? files[0].name.replace(/\.[^.]+$/, '') : '',
+      tag: slideTagFilter,
+      author: '',
+    });
+  };
+
+  const saveDeck = async () => {
+    const d = deckDraft;
+    const fields = { name: d.name.trim(), tag: d.tag.trim(), author: d.author.trim() };
+    if (!fields.name) { setError('Give the slides a name'); return; }
+    if (d.editKey) {
+      try { await update(ref(db, `${P}/slideDecks/${d.editKey}`), fields); setDeckDraft(null); }
+      catch (e) { setError('Save failed: ' + e.message); }
+      return;
+    }
+    // Convert to images, upload each as slides/<deckKey>/NNN.<ext>, then save the deck
+    const deckKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const uploaded = [];
+    setSlideProgress('Preparing…');
+    try {
+      const images = await convertToSlides(d.files, setSlideProgress);
+      const slides = [];
+      for (let i = 0; i < images.length; i++) {
+        setSlideProgress(`Uploading slide ${i + 1} of ${images.length}…`);
+        const { blob, ext } = images[i];
+        const path = `slides/${deckKey}/${String(i + 1).padStart(3, '0')}.${ext}`;
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, blob, { contentType: blob.type || 'image/jpeg' });
+        uploaded.push(path);
+        slides.push({ url: await getDownloadURL(fileRef), path });
+      }
+      await set(ref(db, `${P}/slideDecks/${deckKey}`), { ...fields, slides, ts: Date.now() });
+      setDeckDraft(null);
+      setOpenDeckKey(deckKey);
+    } catch (e) {
+      await Promise.all(uploaded.map(p => deleteObject(storageRef(storage, p)).catch(() => {})));
+      setError('Slides upload failed: ' + e.message);
+    } finally {
+      setSlideProgress(null);
+    }
+  };
+
+  const deleteDeck = async (deck) => {
+    if (!window.confirm(`Delete "${deck.name}" (${deck.slides.length} slides)?`)) return;
+    try {
+      await Promise.all(deck.slides.map(s => deleteObject(storageRef(storage, s.path)).catch(() => {})));
+      await set(ref(db, `${P}/slideDecks/${deck.key}`), null);
+      if (openDeckKey === deck.key) setOpenDeckKey(null);
+    } catch (e) { setError('Delete failed: ' + e.message); }
+  };
+
+  const sendSlide = async (deck, idx) => {
+    const slide = deck.slides[idx];
+    if (!slide) return;
+    setActiveSlide({ deckKey: deck.key, idx });
+    await sendMedia({ type: 'image', url: slide.url, name: `${deck.name} · ${idx + 1}`, seq: { kind: 'slides', deckKey: deck.key, key: String(idx) } });
+  };
+
+  const navigateSlides = (dir) => {
+    if (!openDeck?.slides.length) return;
+    const idx = activeSlide?.deckKey === openDeck.key ? activeSlide.idx : -1;
+    const nextIdx = dir === 'prev'
+      ? Math.max(0, idx - 1)
+      : Math.min(openDeck.slides.length - 1, idx + 1);
+    if (nextIdx !== idx) sendSlide(openDeck, nextIdx);
+  };
+
+  // Scroll the slide on screen into view when it changes
+  useEffect(() => {
+    if (!slidesView || !activeSlide || activeSlide.deckKey !== openDeckKey) return;
+    requestAnimationFrame(() => {
+      const el = document.querySelector('.slides-grid .holy-mass-active');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [activeSlide, slidesView, openDeckKey]);
 
   // ── Book loading ──────────────────────────────────────────────────────────
   const loadBooks = useCallback(async () => {
@@ -464,6 +855,22 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadBooks(); }, [loadBooks]);
+
+  // Malayalam Bible uses its own b1..b73 key scheme (not aligned with English keys),
+  // but each book node carries a `shortName` set to the English book name — use that
+  // to map English name -> Malayalam book key for fetching Malayalam verse text.
+  useEffect(() => {
+    (async () => {
+      try {
+        const bookKeys = await restFetch('malayalam', true);
+        const keys = Object.keys(bookKeys || {});
+        const shortNames = await Promise.all(keys.map(k => restFetch(`malayalam/${k}/shortName`)));
+        const map = {};
+        keys.forEach((k, i) => { if (typeof shortNames[i] === 'string') map[shortNames[i]] = k; });
+        setNameToKeyML(map);
+      } catch { /* Malayalam text fetch will just fail per-verse if this doesn't load */ }
+    })();
+  }, []);
 
   // ── AI Search ─────────────────────────────────────────────────────────────
   // Calls searchVerses directly — same Cloud Function the web app uses.
@@ -492,18 +899,22 @@ export default function App() {
           try { text = String(await restFetch(`ccc/${r.paragraph}`) ?? ''); } catch { /* offline */ }
           return { type: 'ccc', ref: `CCC #${r.paragraph}`, paragraph: r.paragraph, text, reason: r.reason };
         }
-        // Bible verse
-        const key = nameToKey[r.book];
+        // Bible verse — show Malayalam text (the remote app's own preview language)
+        const keyML = nameToKeyML[r.book];
         let text = '';
-        if (key) {
+        if (keyML) {
           try {
-            const val = await restFetch(`english/${key}/chapters/ch${r.chapter}/${r.verse}`);
+            const val = await restFetch(`malayalam/${keyML}/chapters/ch${r.chapter}/${r.verse}`);
             text = typeof val === 'string' ? val : '';
           } catch { /* offline */ }
         }
+        const mlBook = BOOK_NAME_ML[r.book] || '';
+        const ref = mlBook
+          ? `${r.book} ${r.chapter}:${r.verse} / ${mlBook} ${r.chapter}:${r.verse}`
+          : `${r.book} ${r.chapter}:${r.verse}`;
         return {
           type: 'bible',
-          ref: `${r.book} ${r.chapter}:${r.verse}`,
+          ref,
           book: r.book, chapter: Number(r.chapter), verse: Number(r.verse),
           text, reason: r.reason,
         };
@@ -612,11 +1023,13 @@ export default function App() {
     sendSetting('language', next);
   };
 
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    setTheme(next);
-    sendSetting('theme', next);
+  const pickTheme = (id) => {
+    setTheme(id);
+    sendSetting('theme', id);
+    setThemeMenu(false);
   };
+  // follow the theme chosen on the display or another remote
+  useEffect(() => onValue(ref(db, `${P}/settings/theme`), snap => { if (snap.val()) setTheme(snap.val()); }), []);
 
   const sendFontSize = (delta) => sendSetting('fontSizeCmd', { delta, ts: Date.now() });
   const sendNav = (dir) => sendSetting('nav', { dir, ts: Date.now() });
@@ -701,8 +1114,12 @@ export default function App() {
   const selectSong = async (entry) => {
     setSongSlidesLoading(true);
     try {
-      const fileRef = storageRef(storage, `lyrics-text/${entry.filename}.txt`);
-      const bytes = await getBytes(fileRef);
+      // EN previews songs in Manglish (same slide layout), falling back to Malayalam
+      let bytes;
+      if (language === 'EN') {
+        try { bytes = await getBytes(storageRef(storage, `lyrics-text/${entry.filename}.manglish.txt`)); } catch { /* no Manglish version */ }
+      }
+      if (!bytes) bytes = await getBytes(storageRef(storage, `lyrics-text/${entry.filename}.txt`));
       const { title, slides } = parseLyrics(new TextDecoder('utf-8').decode(bytes));
       setSelectedSong({ filename: entry.filename, title: title || entry.title, slides });
     } catch {
@@ -711,6 +1128,11 @@ export default function App() {
       setSongSlidesLoading(false);
     }
   };
+
+  // Reload an open song's preview when the language changes (EN = Manglish, ML = Malayalam)
+  useEffect(() => {
+    if (selectedSong) selectSong({ filename: selectedSong.filename, title: selectedSong.title });
+  }, [language]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendSongSlide = async (filename, slideIdx, slideText) => {
     const label = `♪ ${selectedSong?.title || filename} (${slideIdx + 1})`;
@@ -742,7 +1164,17 @@ export default function App() {
   const goBack = () => {
     if (settingsView) { setSettingsView(false); return; }
     if (mediaView) { setMediaView(false); return; }
-    if (holyMassView) { setHolyMassView(false); return; }
+    if (holyMassView) {
+      if (holyMassOpenKey) { setHolyMassOpenKey(null); return; }
+      if (planViewId) { setPlanViewId(null); return; }
+      if (holyMassSection) { setHolyMassSection(null); return; }
+      setHolyMassView(false); return;
+    }
+    if (slidesView) {
+      if (deckDraft && !slideProgress) { setDeckDraft(null); return; }
+      if (openDeckKey) { setOpenDeckKey(null); return; }
+      setSlidesView(false); return;
+    }
     if (songsView) {
       if (selectedSong) { setSelectedSong(null); return; }
       setSongsView(false); setSongQuery(''); return;
@@ -759,7 +1191,8 @@ export default function App() {
   const goHome = () => {
     setSettingsView(false);
     setMediaView(false);
-    setHolyMassView(false);
+    setHolyMassView(false); setHolyMassSection(null); setHolyMassOpenKey(null); setPlanViewId(null); setPlanEditId(null);
+    setSlidesView(false); setOpenDeckKey(null); setDeckDraft(null);
     setSongsView(false); setSelectedSong(null); setSongQuery('');
     setView('testament'); setTestament(null); setSelectedBook(null);
     setSelectedBookKey(null); setSelectedChapter(null);
@@ -821,7 +1254,12 @@ export default function App() {
   const headerTitle =
     settingsView              ? 'Settings' :
     mediaView                 ? 'Media' :
+    holyMassView && planViewId && !holyMassOpenPage && planById(planViewId) ? `Plan · ${planById(planViewId).name}` :
+    holyMassView && holyMassOpenPage ? `${HOLY_MASS_SECTIONS[holyMassSection].label} · ${holyMassPageLabel(holyMassOpenPage, holyMassLibrary.indexOf(holyMassOpenPage))}` :
+    holyMassView && holyMassSection ? HOLY_MASS_SECTIONS[holyMassSection].label :
     holyMassView              ? 'Holy Mass' :
+    slidesView && openDeck    ? openDeck.name :
+    slidesView                ? 'Slides' :
     songsView && selectedSong ? selectedSong.title :
     songsView                 ? 'Songs' :
     searchView                ? 'AI Search' :
@@ -833,13 +1271,12 @@ export default function App() {
     view === 'chapters'       ? selectedBook :
     `${selectedBook} · Ch ${selectedChapter}`;
 
-  if (!sessionPrefix) return <PinLogin onAuth={setSessionPrefix} />;
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-left">
-          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView) && (
+          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView) && (
             <button className="icon-btn" onClick={goBack} aria-label="Back" disabled={frozen}>
               <ChevronLeft />
             </button>
@@ -847,7 +1284,7 @@ export default function App() {
           <span className="header-title">{headerTitle}</span>
         </div>
         <div className="header-right">
-          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView) && (
+          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView) && (
             <button className="icon-btn" onClick={goHome} aria-label="Home" disabled={frozen}>
               <HomeIcon />
             </button>
@@ -857,10 +1294,10 @@ export default function App() {
 
       {/* Floating settings bar */}
       <div className="settings-bar">
-        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('prev') : sendNav('prev')} aria-label="Previous" disabled={frozen}>
+        <button className="settings-btn icon-only" onClick={() => slidesView && openDeck ? navigateSlides('prev') : sendNav('prev')} aria-label="Previous" disabled={frozen}>
           <ChevronLeft small />
         </button>
-        <button className="settings-btn icon-only" onClick={() => holyMassView ? navigateHolyMass('next') : sendNav('next')} aria-label="Next" disabled={frozen}>
+        <button className="settings-btn icon-only" onClick={() => slidesView && openDeck ? navigateSlides('next') : sendNav('next')} aria-label="Next" disabled={frozen}>
           <ChevronRight small />
         </button>
         <button
@@ -892,8 +1329,8 @@ export default function App() {
           A<span className="font-sup">+</span>
         </button>
         <div className="settings-divider" />
-        <button className="settings-btn" onClick={toggleTheme} aria-label="Toggle theme" disabled={frozen}>
-          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+        <button className={`settings-btn${themeMenu ? ' active' : ''}`} onClick={() => setThemeMenu(m => !m)} aria-label="Choose theme" disabled={frozen}>
+          <span className="theme-dot" style={{ background: getTheme(theme).bg }} />
         </button>
         <div className="settings-divider" />
         <button
@@ -905,6 +1342,75 @@ export default function App() {
           <LockIcon locked={frozen} />
         </button>
       </div>
+
+      {/* Theme picker */}
+      {themeMenu && (
+        <div className="theme-picker">
+          {THEMES.map(t => (
+            <button key={t.id} className={`theme-swatch${getTheme(theme).id === t.id ? ' selected' : ''}`}
+              style={{ background: t.bg }} onClick={() => pickTheme(t.id)}>
+              <span className="theme-swatch-text" style={{ color: t.text }}>Aa</span>
+              <span className="theme-swatch-ref" style={{ color: t.ref }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Holy Mass controls: page, favourites, go to page, clear, running plan */}
+      {holyMassView && holyMassSection && (() => {
+        const curPage = holyMassOpenPage || holyMassLibrary.find(i => i.key === activeHolyMassKey) || null;
+        const curIdx = curPage ? holyMassLibrary.indexOf(curPage) : -1;
+        const openPageAt = (idx) => { const pg = holyMassLibrary[idx]; if (pg) { setPlanViewId(null); setHolyMassOpenKey(pg.key); } };
+        const fav = curPage && isFavPage(curPage.key);
+        return (
+          <div className="mass-bar">
+            <div className="mass-bar-group">
+              <span className="mass-bar-label">Page</span>
+              <button className="mass-bar-btn" disabled={curIdx <= 0} onClick={() => openPageAt(curIdx - 1)} aria-label="Previous page">‹</button>
+              <span className="mass-bar-page">{curPage ? (curPage.label || '–') : '–'}</span>
+              <button className="mass-bar-btn" disabled={curIdx >= holyMassLibrary.length - 1} onClick={() => openPageAt(curIdx + 1)} aria-label="Next page">›</button>
+              <button
+                className={`mass-bar-btn mass-bar-star${fav ? ' mass-bar-star-on' : ''}`}
+                disabled={!curPage}
+                onClick={() => curPage && toggleFavPage(curPage.key)}
+                title={fav ? 'Remove page from favourites' : 'Mark page as favourite'}
+              >{fav ? '★' : '☆'}</button>
+            </div>
+            {favPageIdxs.length > 0 && (
+              <div className="mass-bar-group mass-bar-fav">
+                <button className="mass-bar-btn" onClick={() => { setPlanViewId(null); gotoFavPage(-1); }} aria-label="Previous favourite page">◀★</button>
+                <span className="mass-bar-count">{favPageIdxs.length}</span>
+                <button className="mass-bar-btn" onClick={() => { setPlanViewId(null); gotoFavPage(1); }} aria-label="Next favourite page">★▶</button>
+              </div>
+            )}
+            <form className="mass-bar-group" onSubmit={e => { e.preventDefault(); setPlanViewId(null); goToHolyMassPage(); }}>
+              <span className="mass-bar-label">Go to</span>
+              <input
+                className="mass-bar-input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder={holyMassPageRange}
+                value={holyMassPageInput}
+                onChange={e => setHolyMassPageInput(e.target.value.replace(/\D/g, ''))}
+                aria-label="Go to page"
+              />
+              <button type="submit" className="mass-bar-btn mass-bar-go" disabled={!holyMassPageInput}>Go</button>
+            </form>
+            <div className="mass-bar-group">
+              <button className="mass-bar-btn mass-bar-clear" onClick={clearMediaScreen} title="Clear the display">⬜ Clear</button>
+            </div>
+            {runningPlan && !editingPlan && (
+              <div className="mass-bar-group mass-bar-plan">
+                <button className="mass-bar-btn mass-bar-plan-name" onClick={() => { setHolyMassOpenKey(null); setPlanViewId(runningPlan.id); }} title="Open the running plan">
+                  ▶ {runningPlan.name}
+                </button>
+                <button className="mass-bar-btn" onClick={stopPlan} title="Stop the plan">■</button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <main className="app-main">
         {frozen && (
@@ -1081,6 +1587,16 @@ export default function App() {
         {/* ── Settings view ── */}
         {settingsView && (
           <div className="search-view">
+            <p className="section-heading">Account</p>
+            <div className="access-account-row">
+              <span className="access-email">{userEmail}</span>
+              <button className="access-signout-btn" onClick={signOut}>Sign out</button>
+            </div>
+
+            {isOwner && <AllowedUsers currentSession={P} onJoin={onSwitchSession} />}
+
+            {isOwner && <EventFrameSettings P={P} />}
+
             <p className="section-heading">Background Image</p>
 
             {activeBg ? (
@@ -1241,23 +1757,42 @@ export default function App() {
         )}
 
         {/* ── Holy Mass view ── */}
-        {holyMassView && (
+        {holyMassView && !holyMassSection && (
+          <div className="testament-grid">
+            {Object.entries(HOLY_MASS_SECTIONS).map(([key, { label }]) => {
+              const count = holyMassLibraries[key].length;
+              return (
+                <button key={key} className="testament-btn holy-mass-testament-btn" onClick={() => setHolyMassSection(key)}>
+                  <CrossIcon />
+                  <span className="testament-label">{label}</span>
+                  <span className="testament-count">{count > 0 ? `${count} page${count !== 1 ? 's' : ''}` : 'No pages yet'}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {holyMassView && holyMassSection && !holyMassOpenPage && !planViewId && (
           <div className="search-view">
+            {planEditBanner}
+            {plansPanel}
             <div className="holy-mass-add-row">
               <label className="media-upload-btn holy-mass-upload-btn">
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   style={{ display: 'none' }}
                   disabled={holyMassUploading}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadHolyMass(f); e.target.value = ''; }}
+                  onChange={e => { uploadHolyMass(e.target.files); e.target.value = ''; }}
                 />
-                {holyMassUploading ? 'Uploading…' : <><span>🖼</span> Add Image</>}
+                {holyMassUploading ? 'Uploading…' : <><span>🖼</span> Add Images</>}
               </label>
               <button className="media-upload-btn media-clear-btn" onClick={clearMediaScreen}>
                 <span>⬜</span> Clear
               </button>
             </div>
+
 
             {holyMassLibrary.length === 0 && !holyMassUploading && (
               <p className="section-heading" style={{ textAlign: 'center', marginTop: 32 }}>
@@ -1266,17 +1801,22 @@ export default function App() {
             )}
 
             <div className="holy-mass-grid">
-              {holyMassLibrary.map(item => {
-                const isSent = sent === item.name;
+              {holyMassLibrary.map((item, pageIdx) => {
+                const isSent = sent === holyMassSentName(item);
                 const isActive = activeHolyMassKey === item.key;
                 return (
                   <div key={item.key} className={`holy-mass-card${isActive ? ' holy-mass-active' : ''}`}>
-                    <button className="media-list-thumb-btn" onClick={() => sendHolyMassImage(item)}>
+                    <button className="media-list-thumb-btn" onClick={() => setHolyMassOpenKey(item.key)}>
                       <img src={item.url} alt={item.name} className="holy-mass-thumb" />
                       {isSent && <div className="media-sent-overlay">✓ Sent</div>}
                     </button>
                     <div className="holy-mass-card-footer">
-                      <span className="holy-mass-img-name">{item.name.replace(/\.[^.]+$/, '')}</span>
+                      <span className="holy-mass-img-name">{holyMassPageLabel(item, pageIdx)}</span>
+                      <button
+                        className={`holy-mass-star${isFavPage(item.key) ? ' holy-mass-star-on' : ''}`}
+                        onClick={() => toggleFavPage(item.key)}
+                        title={isFavPage(item.key) ? 'Remove from favourites' : 'Add to favourites'}
+                      >{isFavPage(item.key) ? '★' : '☆'}</button>
                       <button className="media-delete-btn" onClick={() => deleteHolyMass(item)} title="Delete">✕</button>
                     </div>
                   </div>
@@ -1286,8 +1826,253 @@ export default function App() {
           </div>
         )}
 
+        {holyMassView && holyMassSection && planViewId && !holyMassOpenPage && (() => {
+          const pl = planById(planViewId);
+          if (!pl) return null;
+          const running = activePlanId === pl.id;
+          return (
+            <div className="search-view">
+              <div className="mass-plan-actions">
+                {running
+                  ? <button className="mass-plan-btn" onClick={stopPlan}>■ Stop plan</button>
+                  : <button className="mass-plan-btn mass-plan-btn-primary" disabled={!pl.items.length} onClick={() => startPlan(pl)}>▶ Start plan</button>}
+                <button className="mass-plan-btn" onClick={() => { setPlanEditId(pl.id); setPlanViewId(null); }}>＋ Add slides</button>
+                <button className="mass-plan-btn" onClick={() => copyPlan(pl)}>Copy</button>
+                <button className="mass-plan-btn mass-plan-btn-danger" onClick={() => deletePlan(pl)}>Delete</button>
+              </div>
+              {pl.items.length === 0 && <p className="section-heading">No slides yet — tap ＋ Add slides, then ＋ on the slides you use</p>}
+              <div className="holy-mass-parts">
+                {pl.items.map((it, i) => {
+                  const info = planItemInfo(it);
+                  const isActive = activeHolyMassKey === it.key && activeHolyMassPart === it.part && activeHolyMassSlide === it.slide;
+                  return (
+                    <div key={`${it.key}-${it.part}-${it.slide}`} role="button" tabIndex={0}
+                      className={`holy-mass-part-btn${isActive ? ' holy-mass-part-active' : ''}`}
+                      onClick={() => sendPlanItem(it)}
+                      onKeyDown={e => { if (e.key === 'Enter') sendPlanItem(it); }}
+                    >
+                      <span className="holy-mass-part-num">{i + 1}</span>
+                      <span className="holy-mass-part-body">
+                        <span className="holy-mass-part-role">{info.page}{info.role ? ` · ${info.role}` : ''}</span>
+                        <span className="holy-mass-part-text">{info.text}</span>
+                      </span>
+                      <span className="mass-plan-item-tools" onClick={e => e.stopPropagation()}>
+                        <button className="mass-plan-icon" disabled={i === 0} onClick={() => movePlanItem(pl, i, -1)} title="Move up">▲</button>
+                        <button className="mass-plan-icon" disabled={i === pl.items.length - 1} onClick={() => movePlanItem(pl, i, 1)} title="Move down">▼</button>
+                        <button className="mass-plan-icon" onClick={() => removePlanItem(pl, i)} title="Remove">✕</button>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {holyMassView && holyMassSection && holyMassOpenPage && (() => {
+          const page = holyMassOpenPage;
+          const pageIdx = holyMassLibrary.indexOf(page);
+          const parts = holyMassTextParts(page);
+          const goPage = (d) => { const p = holyMassLibrary[pageIdx + d]; if (p) setHolyMassOpenKey(p.key); };
+          return (
+            <div className="search-view">
+              {planEditBanner}
+
+              <img src={page.url} alt={holyMassPageLabel(page, pageIdx)} className="holy-mass-page-full" style={{ marginBottom: 12 }} />
+
+              {parts.length === 0 && <p className="section-heading">No text on this page</p>}
+              <div className="holy-mass-parts">
+                {parts.length === 0 && (
+                  <button className="holy-mass-part-btn" onClick={() => sendHolyMassPart(page, 0)}>
+                    <span className="holy-mass-part-text">Show the page image</span>
+                  </button>
+                )}
+                {parts.flatMap((pt, i) => {
+                  const screens = pt.slides?.length ? pt.slides : [pt.text];  // same slides as the display
+                  return screens.map((text, j) => {
+                    const isActive = activeHolyMassKey === page.key && activeHolyMassPart === i && activeHolyMassSlide === j;
+                    return (
+                      <div
+                        key={`${i}-${j}`}
+                        role="button"
+                        tabIndex={0}
+                        className={`holy-mass-part-btn${isActive ? ' holy-mass-part-active' : ''}${j > 0 ? ' holy-mass-part-cont' : ''}`}
+                        onClick={() => sendHolyMassPart(page, i, j)}
+                        onKeyDown={e => { if (e.key === 'Enter') sendHolyMassPart(page, i, j); }}
+                      >
+                        <span className="holy-mass-part-num">{screens.length > 1 ? `${i + 1}.${j + 1}` : i + 1}</span>
+                        <span className="holy-mass-part-body">
+                          {pt.role && (
+                            <span className="holy-mass-part-role">
+                              {pt.role}{pt.roleName ? ` · ${pt.roleName}` : ''}
+                              {screens.length > 1 ? ` · ${j + 1} of ${screens.length}` : ''}
+                            </span>
+                          )}
+                          {!pt.role && screens.length > 1 && <span className="holy-mass-part-role">{j + 1} of {screens.length}</span>}
+                          <span className="holy-mass-part-text">{text}</span>
+                        </span>
+                        {editingPlan && (
+                          <button
+                            className={`holy-mass-star mass-plan-tick${inPlan(editingPlan, page.key, i, j) ? ' mass-plan-tick-on' : ''}`}
+                            onClick={e => { e.stopPropagation(); togglePlanItem(page.key, i, j); }}
+                            title={inPlan(editingPlan, page.key, i, j) ? 'Remove from plan' : 'Add to plan'}
+                          >{inPlan(editingPlan, page.key, i, j) ? '✓' : '＋'}</button>
+                        )}
+                      </div>
+                    );
+                  });
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── Slides view ── */}
+        {slidesView && !openDeck && (
+          <div className="search-view">
+            <div className="holy-mass-add-row">
+              <label className={`media-upload-btn slides-upload-btn${deckDraft ? ' slides-upload-btn-disabled' : ''}`}>
+                <input
+                  type="file"
+                  accept={SLIDE_ACCEPT}
+                  multiple
+                  style={{ display: 'none' }}
+                  disabled={!!deckDraft}
+                  onChange={e => { pickSlideFiles(e.target.files); e.target.value = ''; }}
+                />
+                <span>⬆</span> Upload
+              </label>
+              <button className="media-upload-btn media-clear-btn" onClick={clearMediaScreen}>
+                <span>⬜</span> Clear
+              </button>
+            </div>
+
+            {deckDraft && (
+              <div className="media-text-form slides-form">
+                {deckDraft.files && (
+                  <p className="slides-form-files">
+                    {deckDraft.files.length === 1 ? deckDraft.files[0].name : `${deckDraft.files.length} images`}
+                  </p>
+                )}
+                <input
+                  className="search-input"
+                  placeholder="Name"
+                  value={deckDraft.name}
+                  onChange={e => setDeckDraft(d => ({ ...d, name: e.target.value }))}
+                  disabled={!!slideProgress}
+                />
+                <input
+                  className="search-input"
+                  list="slide-tag-options"
+                  placeholder="Tag Name (e.g. Christmas)"
+                  value={deckDraft.tag}
+                  onChange={e => setDeckDraft(d => ({ ...d, tag: e.target.value }))}
+                  disabled={!!slideProgress}
+                />
+                <datalist id="slide-tag-options">
+                  {slideTags.map(t => <option key={t} value={t} />)}
+                </datalist>
+                <input
+                  className="search-input"
+                  placeholder="Author (optional)"
+                  value={deckDraft.author}
+                  onChange={e => setDeckDraft(d => ({ ...d, author: e.target.value }))}
+                  disabled={!!slideProgress}
+                />
+                <div className="holy-mass-add-row" style={{ marginBottom: 0 }}>
+                  <button className="media-text-save-btn" onClick={saveDeck} disabled={!!slideProgress}>
+                    {slideProgress || (deckDraft.editKey ? 'Save' : 'Upload')}
+                  </button>
+                  <button className="media-upload-btn media-clear-btn" onClick={() => setDeckDraft(null)} disabled={!!slideProgress}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {slideTags.length > 0 && (
+              <div className="slides-tag-row">
+                {['', ...slideTags].map(t => (
+                  <button
+                    key={t || '__all'}
+                    className={`slides-tag-chip${slideTagFilter === t ? ' slides-tag-chip-active' : ''}`}
+                    onClick={() => setSlideTagFilter(t)}
+                  >
+                    {t || 'All'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {visibleDecks.length === 0 && !deckDraft && (
+              <p className="section-heading" style={{ textAlign: 'center', marginTop: 32 }}>
+                No slides yet — upload a PowerPoint (.pptx), a PDF, or images.
+                <br />From Google Slides: File → Download → PDF or .pptx.
+              </p>
+            )}
+
+            <div className="slides-deck-list">
+              {visibleDecks.map(deck => (
+                <div key={deck.key} className="slides-deck-card">
+                  <button className="slides-deck-open" onClick={() => setOpenDeckKey(deck.key)}>
+                    {deck.slides[0]
+                      ? <img src={deck.slides[0].url} alt="" className="slides-deck-thumb" loading="lazy" />
+                      : <div className="slides-deck-thumb" />}
+                    <div className="slides-deck-info">
+                      <span className="slides-deck-name">{deck.name}</span>
+                      <span className="slides-deck-meta">
+                        {deck.slides.length} slide{deck.slides.length !== 1 ? 's' : ''}{deck.author ? ` · ${deck.author}` : ''}
+                      </span>
+                      {deck.tag && <span className="slides-tag-chip slides-tag-chip-static">{deck.tag}</span>}
+                    </div>
+                  </button>
+                  <div className="slides-deck-actions">
+                    <button
+                      className="media-edit-btn"
+                      onClick={() => setDeckDraft({ editKey: deck.key, name: deck.name || '', tag: deck.tag || '', author: deck.author || '' })}
+                      title="Edit name, tag, author"
+                      disabled={!!deckDraft}
+                    >✎</button>
+                    <button className="media-delete-btn" onClick={() => deleteDeck(deck)} title="Delete">✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {slidesView && openDeck && (
+          <div className="search-view">
+            {(openDeck.tag || openDeck.author) && (
+              <div className="slides-open-meta">
+                {openDeck.tag && <span className="slides-tag-chip slides-tag-chip-static">{openDeck.tag}</span>}
+                {openDeck.author && <span className="slides-deck-meta">by {openDeck.author}</span>}
+              </div>
+            )}
+            <button className="media-upload-btn media-clear-btn" style={{ marginBottom: 12 }} onClick={clearMediaScreen}>
+              <span>⬜</span> Clear screen
+            </button>
+            <div className="holy-mass-grid slides-grid">
+              {openDeck.slides.map((slide, i) => {
+                const isActive = activeSlide?.deckKey === openDeck.key && activeSlide.idx === i;
+                return (
+                  <div key={slide.path} className={`holy-mass-card${isActive ? ' holy-mass-active' : ''}`}>
+                    <button className="media-list-thumb-btn" onClick={() => sendSlide(openDeck, i)}>
+                      <img src={slide.url} alt={`Slide ${i + 1}`} className="holy-mass-thumb slides-thumb" loading="lazy" />
+                      {sent === `${openDeck.name} · ${i + 1}` && <div className="media-sent-overlay">✓ Sent</div>}
+                    </button>
+                    <div className="holy-mass-card-footer">
+                      <span className="holy-mass-img-name">Slide {i + 1}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Home picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'testament' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'testament' && (
           booksLoading
             ? <CenterSpinner />
             : <div className="testament-grid">
@@ -1334,7 +2119,14 @@ export default function App() {
                   <CrossIcon />
                   <span className="testament-label">Holy Mass</span>
                   <span className="testament-count">
-                    {holyMassLibrary.length > 0 ? `${holyMassLibrary.length} image${holyMassLibrary.length !== 1 ? 's' : ''}` : 'Liturgical images'}
+                    Liturgical images
+                  </span>
+                </button>
+                <button className="testament-btn slides-testament-btn" onClick={() => setSlidesView(true)}>
+                  <SlidesIcon />
+                  <span className="testament-label">Slides</span>
+                  <span className="testament-count">
+                    {slideDecks.length > 0 ? `${slideDecks.length} deck${slideDecks.length !== 1 ? 's' : ''}` : 'PowerPoint & PDF'}
                   </span>
                 </button>
                 <button className="testament-btn settings-testament-btn" onClick={() => setSettingsView(true)}>
@@ -1348,7 +2140,7 @@ export default function App() {
         )}
 
         {/* ── Recent sent items ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'recent' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'recent' && (
           recentSent.length === 0
             ? <p className="search-status">Nothing sent yet this session.</p>
             : <ul className="search-results">
@@ -1368,7 +2160,7 @@ export default function App() {
         )}
 
         {/* ── CCC range picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'ccc-ranges' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'ccc-ranges' && (
           <div className="num-grid">
             {cccRanges.map(r => (
               <button
@@ -1383,7 +2175,7 @@ export default function App() {
         )}
 
         {/* ── CCC paragraph picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'ccc-paragraphs' && selectedCccRange && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'ccc-paragraphs' && selectedCccRange && (
           <div className="num-grid">
             {Array.from(
               { length: selectedCccRange.end - selectedCccRange.start + 1 },
@@ -1397,7 +2189,7 @@ export default function App() {
         )}
 
         {/* ── Book list ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'books' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'books' && (
           <div className="book-list-wrap">
             <input
               className="book-search-input"
@@ -1429,7 +2221,7 @@ export default function App() {
         )}
 
         {/* ── Chapter picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'chapters' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'chapters' && (
           chaptersLoading
             ? <CenterSpinner />
             : <>
@@ -1443,7 +2235,7 @@ export default function App() {
         )}
 
         {/* ── Verse picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && view === 'verses' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'verses' && (
           versesLoading
             ? <CenterSpinner />
             : <>
@@ -1469,103 +2261,273 @@ export default function App() {
   );
 }
 
-// ── PIN Login ─────────────────────────────────────────────────────────────
-function PinLogin({ onAuth }) {
-  const PIN_LENGTH = 6;
-  const [digits, setDigits] = useState(Array(PIN_LENGTH).fill(''));
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [shake, setShake] = useState(false);
-  const inputRefs = useRef([]);
+// ── Event frame editor (owner only): drag text and logos on a 16:9 preview of the display ──
+const newItemId = () => `i${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
-  useEffect(() => { inputRefs.current[0]?.focus(); }, []);
+function EventFrameSettings({ P }) {
+  const [frame, setFrame] = useState(null);       // saved state
+  const [items, setItems] = useState({});         // working copy (moves live while dragging)
+  const [sel, setSel] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const boxRef = useRef(null);
+  const dragRef = useRef(null);
 
-  async function verifyPin(pin) {
-    setLoading(true);
-    setError('');
-    try {
-      let sessions = SESSIONS;
-      try {
-        const snap = await get(ref(db, 'config/sessions'));
-        if (snap.val()) sessions = snap.val();
-      } catch { /* use hardcoded fallback */ }
-      const prefix = sessions[pin];
-      if (prefix) {
-        localStorage.setItem(SESSION_KEY, prefix);
-        localStorage.setItem(SESSION_TS_KEY, String(Date.now()));
-        onAuth(prefix);
-      } else {
-        triggerError('Incorrect PIN');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => onValue(ref(db, `${P}/eventFrame`), snap => {
+    const v = snap.val();
+    setFrame(v);
+    if (!dragRef.current) setItems(frameItems(v));
+  }), [P]);
 
-  function triggerError(msg) {
-    setShake(true);
-    setError(msg);
-    setDigits(Array(PIN_LENGTH).fill(''));
-    setTimeout(() => { setShake(false); inputRefs.current[0]?.focus(); }, 500);
-  }
+  const enabled = !!frame?.enabled;
+  const border = frame?.border !== false;
+  const save = (patch) => update(ref(db, `${P}/eventFrame`), patch).catch(e => setMsg('Could not save: ' + e.message));
+  const saveItems = (next) => { setItems(next); save({ items: next }); };
+  const setItem = (id, patch) => saveItems({ ...items, [id]: { ...items[id], ...patch } });
 
-  function handleChange(i, e) {
-    const val = e.target.value.replace(/\D/g, '').slice(-1);
-    const next = [...digits];
-    next[i] = val;
-    setDigits(next);
-    setError('');
-    if (val && i < PIN_LENGTH - 1) inputRefs.current[i + 1]?.focus();
-    if (val && next.every(d => d !== '')) verifyPin(next.join(''));
-  }
-
-  function handleKeyDown(i, e) {
-    if (e.key === 'Backspace') {
-      if (digits[i]) { const n = [...digits]; n[i] = ''; setDigits(n); }
-      else if (i > 0) { inputRefs.current[i - 1]?.focus(); const n = [...digits]; n[i - 1] = ''; setDigits(n); }
-    } else if (e.key === 'ArrowLeft' && i > 0) inputRefs.current[i - 1]?.focus();
-    else if (e.key === 'ArrowRight' && i < PIN_LENGTH - 1) inputRefs.current[i + 1]?.focus();
-  }
-
-  function handlePaste(e) {
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, PIN_LENGTH);
-    if (!pasted) return;
+  const onItemPointerDown = (id, e) => {
     e.preventDefault();
-    const next = Array(PIN_LENGTH).fill('');
-    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
-    setDigits(next);
-    inputRefs.current[Math.min(pasted.length, PIN_LENGTH - 1)]?.focus();
-    if (pasted.length === PIN_LENGTH) verifyPin(pasted);
+    setSel(id);
+    const rect = boxRef.current.getBoundingClientRect();
+    const it = items[id];
+    dragRef.current = { id, dx: e.clientX - (rect.left + rect.width * it.x / 100), dy: e.clientY - (rect.top + rect.height * it.y / 100), moved: false };
+    const move = (ev) => {
+      const d = dragRef.current;
+      const x = Math.min(100, Math.max(0, ((ev.clientX - d.dx - rect.left) / rect.width) * 100));
+      const y = Math.min(100, Math.max(0, ((ev.clientY - d.dy - rect.top) / rect.height) * 100));
+      d.moved = true;
+      setItems(cur => ({ ...cur, [d.id]: { ...cur[d.id], x: +x.toFixed(1), y: +y.toFixed(1) } }));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const d = dragRef.current;
+      dragRef.current = null;
+      if (d?.moved) setItems(cur => { save({ items: cur }); return cur; });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const addText = () => {
+    const id = newItemId();
+    saveItems({ ...items, [id]: { type: 'text', text: 'New text', x: 50, y: 50, size: 2, font: 'bold', color: '' } });
+    setSel(id);
+  };
+  const addLogo = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const path = `event-frame/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const r = storageRef(storage, path);
+      await uploadBytes(r, file, { contentType: file.type });
+      const url = await getDownloadURL(r);
+      const id = newItemId();
+      saveItems({ ...items, [id]: { type: 'image', url, path, x: 8, y: 50, size: 10 } });
+      setSel(id);
+    } catch (e) { setMsg('Upload failed: ' + e.message); }
+    finally { setUploading(false); }
+  };
+  const removeItem = (id) => {
+    const it = items[id];
+    const next = { ...items };
+    delete next[id];
+    saveItems(next);
+    setSel(null);
+    if (it?.path) deleteObject(storageRef(storage, it.path)).catch(() => {});
+  };
+  const resetLayout = () => {
+    if (!window.confirm('Reset the frame to the Encounter layout? Your text and logo positions will be replaced.')) return;
+    saveItems(defaultFrameItems());
+    setSel(null);
+  };
+
+  const it = sel && items[sel];
+  return (
+    <>
+      <p className="section-heading">Event frame</p>
+      <div className="event-frame-box">
+        <div className="access-account-row">
+          <span className="access-email">Show the event frame on the display</span>
+          <button className={`event-frame-toggle${enabled ? ' on' : ''}`} onClick={() => save({ enabled: !enabled, items })}>
+            {enabled ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        <div className="ef-toolbar">
+          <button className="ef-btn" onClick={addText}>＋ Text</button>
+          <label className={`ef-btn${uploading ? ' ef-disabled' : ''}`}>
+            <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploading}
+              onChange={e => { addLogo(e.target.files?.[0]); e.target.value = ''; }} />
+            {uploading ? 'Uploading…' : '＋ Logo'}
+          </label>
+          <button className={`ef-btn${border ? ' ef-on' : ''}`} onClick={() => save({ border: !border })}>Border {border ? 'on' : 'off'}</button>
+          <button className="ef-btn" onClick={resetLayout}>Reset</button>
+        </div>
+
+        <div ref={boxRef} className="ef-preview" onPointerDown={e => { if (e.target === e.currentTarget) setSel(null); }}>
+          <div className="ef-preview-sample">Verse text appears here</div>
+          <EventFrame frame={{ ...(frame || {}), items }} isDark selectedId={sel} onItemPointerDown={onItemPointerDown} />
+        </div>
+        <p className="access-hint" style={{ margin: 0 }}>{msg || 'Drag items to place them. Tap an item to edit it.'}</p>
+
+        {it && (
+          <div className="ef-panel">
+            {it.type === 'text' && (
+              <label className="event-frame-field">
+                <span>Text</span>
+                <textarea className="search-input ef-text" rows={2} value={it.text}
+                  onChange={e => setItems(cur => ({ ...cur, [sel]: { ...cur[sel], text: e.target.value } }))}
+                  onBlur={() => save({ items })} />
+              </label>
+            )}
+            <label className="event-frame-field">
+              <span>Size · {it.size}</span>
+              <input type="range" min={it.type === 'image' ? 3 : 0.5} max={it.type === 'image' ? 40 : 8} step={it.type === 'image' ? 0.5 : 0.1}
+                value={it.size} onChange={e => setItems(cur => ({ ...cur, [sel]: { ...cur[sel], size: +e.target.value } }))}
+                onPointerUp={() => save({ items })} onKeyUp={() => save({ items })} />
+            </label>
+            {it.type === 'text' && (
+              <div className="ef-row">
+                <label className="event-frame-field">
+                  <span>Font</span>
+                  <select className="search-input" value={it.font || 'normal'} onChange={e => setItem(sel, { font: e.target.value })}>
+                    {Object.entries(FRAME_FONTS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
+                  </select>
+                </label>
+                <label className="event-frame-field">
+                  <span>Colour</span>
+                  <span className="ef-colour">
+                    <input type="color" value={it.color || '#fdf6e3'} onChange={e => setItem(sel, { color: e.target.value })} />
+                    <button className="ef-btn ef-small" onClick={() => setItem(sel, { color: '' })}>Auto</button>
+                  </span>
+                </label>
+                <label className="event-frame-field">
+                  <span>Style</span>
+                  <select className="search-input" value={it.style || 'plain'} onChange={e => setItem(sel, { style: e.target.value })}>
+                    <option value="plain">Plain</option>
+                    <option value="ribbon">Ribbon</option>
+                  </select>
+                </label>
+              </div>
+            )}
+            <button className="ef-btn ef-danger" onClick={() => removeItem(sel)}>Delete {it.type === 'image' ? 'logo' : 'text'}</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ── Owner-only: emails allowed to sign in (each gets its own private session) ──
+function AllowedUsers({ currentSession, onJoin }) {
+  const [users, setUsers] = useState([]);
+  const [email, setEmail] = useState('');
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => onValue(ref(db, 'config/access'), snap => {
+    setUsers(Object.entries(snap.val() || {}).map(([key, v]) => ({ key, ...v })).sort((a, b) => (a.email || '').localeCompare(b.email || '')));
+  }), []);
+
+  const add = async (e) => {
+    e.preventDefault();
+    const em = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setMsg('Enter a valid email'); return; }
+    if (em === OWNER_EMAIL) { setMsg('That is the owner account'); return; }
+    try {
+      await httpsCallable(functions, 'manageAccess')({ email: em, action: 'add' });
+      setEmail(''); setMsg(`Added ${em}`);
+    } catch (err) { setMsg('Could not add: ' + err.message); }
+  };
+  const remove = async (u) => {
+    if (!window.confirm(`Remove access for ${u.email}?`)) return;
+    try { await httpsCallable(functions, 'manageAccess')({ email: u.email, action: 'remove' }); setMsg(`Removed ${u.email} and signed them out`); }
+    catch (err) { setMsg('Could not remove: ' + err.message); }
+  };
+
+  return (
+    <>
+      <p className="section-heading">Allowed users</p>
+      <div className="access-list">
+        <div className="access-user">
+          <span className="access-email">{OWNER_EMAIL} <span className="access-owner-tag">Owner</span></span>
+          <JoinButton session={sessionForEmail(OWNER_EMAIL)} currentSession={currentSession} onJoin={onJoin} />
+        </div>
+        {users.map(u => (
+          <div key={u.key} className="access-user">
+            <span className="access-email">{u.email}</span>
+            <span className="access-actions">
+              <JoinButton session={sessionForEmail(u.email)} currentSession={currentSession} onJoin={onJoin} />
+              <button className="media-delete-btn" onClick={() => remove(u)} title="Remove access">✕</button>
+            </span>
+          </div>
+        ))}
+      </div>
+      <form className="access-add-row" onSubmit={add}>
+        <input
+          className="search-input"
+          type="email"
+          placeholder="Add a Google account email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+        />
+        <button type="submit" className="search-go-btn" disabled={!email.trim()}>Add</button>
+      </form>
+      <p className="access-hint">{msg || 'Each person signs in with Google on their own display and remote and gets their own private screen. Join controls that person\'s screen from this remote.'}</p>
+    </>
+  );
+}
+
+function JoinButton({ session, currentSession, onJoin }) {
+  const joined = session === currentSession;
+  return (
+    <button className={`access-join-btn${joined ? ' access-joined' : ''}`} disabled={joined} onClick={() => onJoin?.(session)}>
+      {joined ? 'Joined' : 'Join'}
+    </button>
+  );
+}
+
+// ── Google sign-in screen ─────────────────────────────────────────────────
+function GoogleLogin({ access }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSignIn() {
+    setError('');
+    setBusy(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+    } catch (e) {
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') setError(e.message || 'Sign-in failed');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="pin-login">
-      <div className={`pin-card${shake ? ' pin-shake' : ''}`}>
+      <div className="pin-card">
         <div className="pin-cross">✝</div>
         <h1 className="pin-title">Bible Remote</h1>
-        <p className="pin-subtitle">Enter your 6-digit PIN</p>
-        <div className="pin-inputs" onPaste={handlePaste}>
-          {digits.map((d, i) => (
-            <input
-              key={i}
-              ref={el => (inputRefs.current[i] = el)}
-              type="tel"
-              inputMode="numeric"
-              maxLength={1}
-              value={d}
-              onChange={e => handleChange(i, e)}
-              onKeyDown={e => handleKeyDown(i, e)}
-              disabled={loading}
-              className={`pin-digit${d ? ' pin-digit-filled' : ''}`}
-            />
-          ))}
-        </div>
-        <div className="pin-status">
-          {loading
-            ? <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2, margin: '0 auto' }} />
-            : <span className="pin-error">{error}</span>
-          }
-        </div>
+        {access.status === 'checking' ? (
+          <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2, margin: '24px auto' }} />
+        ) : access.status === 'denied' ? (
+          <>
+            <p className="pin-subtitle">{access.email || 'This account'} doesn't have access. Ask the owner to add it.</p>
+            <button className="auth-btn auth-btn-secondary" onClick={() => fbSignOut(auth)}>Use a different account</button>
+          </>
+        ) : (
+          <>
+            <p className="pin-subtitle">Sign in to continue</p>
+            <button className="auth-btn" onClick={handleSignIn} disabled={busy}>
+              {busy ? 'Signing in…' : 'Sign in with Google'}
+            </button>
+          </>
+        )}
+        <div className="pin-status"><span className="pin-error">{error}</span></div>
       </div>
     </div>
   );
@@ -1661,6 +2623,15 @@ function MediaIcon() {
       <rect x="3" y="3" width="18" height="14" rx="2"/>
       <path d="M3 9l4-3 4 4 3-2 4 5"/>
       <circle cx="8" cy="7" r="1.2" fill="currentColor" stroke="none"/>
+    </svg>
+  );
+}
+function SlidesIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="13" rx="2"/>
+      <line x1="12" y1="17" x2="12" y2="21"/>
+      <line x1="8" y1="21" x2="16" y2="21"/>
     </svg>
   );
 }

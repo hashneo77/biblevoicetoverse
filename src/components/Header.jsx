@@ -12,7 +12,13 @@ export function Header({
   onDecreaseFontSize,
   onIncreaseFontSize,
   onToggleTheme,
+  themeLabel,
   onToggleFullscreen,
+  userEmail,
+  onSignOut,
+  sessions,
+  currentSession,
+  onSwitchSession,
   bookAliases,
   bibleMeta,
   onSelectVerse,
@@ -103,9 +109,30 @@ export function Header({
         <button onClick={onToggleFullscreen} className={ghostBtn} title="Fullscreen (F)">⤢</button>
 
         {/* Theme toggle */}
-        <button onClick={onToggleTheme} className={ghostBtn} title="Toggle theme">
-          {isDark ? '☀️' : '🌙'}
+        <button onClick={onToggleTheme} className={ghostBtn} title={`Theme: ${themeLabel || ''} — tap for the next theme`}>
+          🎨
         </button>
+
+        {/* Owner: join any user's screen */}
+        {sessions && onSwitchSession && (
+          <select
+            value={currentSession}
+            onChange={e => onSwitchSession(e.target.value)}
+            title="Session (owner)"
+            className={`max-w-[11rem] truncate rounded-xl border px-2 py-1.5 text-xs font-medium ${
+              isDark ? 'border-white/10 bg-slate-900 text-slate-300' : 'border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {sessions.map(s => <option key={s.session} value={s.session}>{s.label}</option>)}
+          </select>
+        )}
+
+        {/* Sign out (Google account) */}
+        {onSignOut && (
+          <button onClick={onSignOut} className={ghostBtn} title={`Sign out${userEmail ? ` (${userEmail})` : ''}`} aria-label="Sign out">
+            ⎋
+          </button>
+        )}
 
         {/* ── sm+: search lives here, pushed right ── */}
         <div className="hidden sm:flex flex-1 min-w-0 justify-end">

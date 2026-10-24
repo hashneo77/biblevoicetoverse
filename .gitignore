@@ -21,3 +21,9 @@ catechism_firebase.json
 .DS_Store
 Thumbs.db
 *.local
+
+# Large local source files: Mass page images/PDFs live in Firebase Storage + the database
+source-assets/
+# Generated exports and data backups
+exports/
+backups/

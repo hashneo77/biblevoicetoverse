@@ -3,11 +3,13 @@ import { ref as dbRef, get, set, push, onValue } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
 import { ref as storageRef, uploadString, getBytes } from 'firebase/storage'
 import { db, functions, storage } from '../firebase'
+import { getCachedBible, putCachedBible } from '../bibleCache'
 import { parseReference } from '../utils/parseReference'
 import { tfidfSearch } from '../utils/tfidf'
 import { parseLyrics, serializeLyrics } from '../utils/parseLyrics'
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
 import { Header } from './Header'
+import { nextThemeId } from '../themes'
 import { VerseStage } from './VerseStage'
 import { RecentVerses } from './RecentVerses'
 
@@ -51,6 +53,46 @@ async function fetchBibleFromFirebase(path) {
   }
 }
 
+// Use the device cache when it matches bibleVersion/<lang>; download otherwise.
+// versions === undefined means the version check itself failed (offline), so any cache will do.
+async function loadBible(lang, versions) {
+  const version = versions?.[lang] ?? null
+  const cached = await getCachedBible(lang)
+  if (cached && (versions === undefined || (version !== null && cached.version === version))) return cached.store
+  const fresh = await fetchBibleFromFirebase(lang)
+  if (fresh) { putCachedBible(lang, version, fresh); return fresh }
+  return cached?.store ?? null
+}
+
+// Largest font size (down to 40% of the chosen size) at which the text fits between the top of the
+// text area and the bottom of the window — so a whole Holy Mass slide is always visible.
+function fitFontSize(text, body, baseSize) {
+  if (!text || !body) return baseSize
+  const top = Math.max(0, body.getBoundingClientRect().top)
+  const framed = !!document.querySelector('[data-event-frame-on]')  // event frame: keep clear of its bottom band
+  const avail = Math.max(120, window.innerHeight - top - 32 - (framed ? window.innerHeight * 0.08 : 0))
+  const cs = getComputedStyle(body)
+  const meas = document.createElement('div')
+  meas.className = body.className
+  Object.assign(meas.style, {
+    position: 'absolute', visibility: 'hidden', left: '-10000px', top: '0',
+    width: `${body.clientWidth}px`, lineHeight: '1.55',
+    fontFamily: cs.fontFamily, fontWeight: cs.fontWeight, padding: cs.padding, whiteSpace: 'pre-wrap',
+  })
+  meas.innerText = text
+  document.body.appendChild(meas)
+  const vwCap = window.innerWidth * 0.09  // matches the stage's min(size, 9vw)
+  const fits = size => { meas.style.fontSize = `${Math.min(size, vwCap)}px`; return meas.scrollHeight <= avail }
+  let size = baseSize
+  if (!fits(size)) {
+    let lo = baseSize * 0.4, hi = baseSize
+    for (let k = 0; k < 12; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid }
+    size = Math.floor(lo)
+  }
+  meas.remove()
+  return size
+}
+
 function lookupVerse(store, book, ch, v) {
   if (!store?.data) return { text: null, resolvedBook: book }
   const { data, englishToKeyMap: map } = store
@@ -64,7 +106,7 @@ function lookupVerse(store, book, ch, v) {
   return { text: data[key]?.[String(ch)]?.[String(v)] ?? null, resolvedBook: key }
 }
 
-export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 'remote' }) {
+export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefix = 'remote', userEmail, onSignOut, sessions, onSwitchSession }) {
   const P = sessionPrefix
   const RECENT_ITEMS_PATH = `${P}/recentItems`
 
@@ -91,8 +133,27 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
   const [songsManifest, setSongsManifest] = useState(null)
   const [songState, setSongState] = useState(null) // null = Bible/CCC mode; { filename, title, slides, slideIdx }
   const songCacheRef = useRef({})
+  // { kind: 'holyMass', path, key } | { kind: 'slides', deckKey, key } for the image on screen, so ◀ ▶ can step through it
+  const mediaSeqRef = useRef(null)
+  // Running Holy Mass plan ({ path, items: [{key, part, slide}] }): ◀ ▶ step only through its slides
+  const activeMassPlanRef = useRef(null)
+  useEffect(() => {
+    let plans = {}, activeId = null
+    const update = () => { activeMassPlanRef.current = (activeId && plans[activeId]) || null }
+    const off1 = onValue(dbRef(db, `${P}/massPlans`), snap => { plans = snap.val() || {}; update() })
+    const off2 = onValue(dbRef(db, `${P}/massActivePlan`), snap => { activeId = snap.val(); update() })
+    return () => { off1(); off2() }
+  }, [])
   const [mediaUrl, setMediaUrl] = useState(null) // active media image url
   const [mediaHtml, setMediaHtml] = useState(null) // active media text html
+  const [mediaLang, setMediaLang] = useState(null) // 'ML' | 'EN' font for remote-sent text (e.g. Holy Mass pages)
+  // Holy Mass: the slide on screen ({ text, role, label, path, key, part, slide }). Slides are pre-split
+  // in the data (same as the remote shows); the display shrinks the text to fit instead of splitting.
+  const [massPart, setMassPart] = useState(null)
+  const [massChunks, setMassChunks] = useState(null)
+  const [massChunkIdx, setMassChunkIdx] = useState(0)
+  const [viewportTick, setViewportTick] = useState(0)
+  const [massFontSize, setMassFontSize] = useState(null) // font size that fits the Holy Mass slide on screen
   const [bgImageUrl, setBgImageUrl] = useState(null)
   const [bgImageOpacity, setBgImageOpacity] = useState(0.2)
 
@@ -102,7 +163,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
   stateRef.current = {
     displayMode, bibleEN, bibleML, cccData, currentRef, isDark, isFullscreen,
     onSetTheme,
-    songState, songsManifest,
+    songState, songsManifest, massChunks, massChunkIdx,
     toggleFullscreen: () => toggleFullscreenRef.current?.(),
   }
 
@@ -122,19 +183,27 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       .catch(() => {})
   }, [])
 
-  // Load Bible data from Firebase
+  // Load Bible data — Malayalam first (the display always starts in ML), English after
   useEffect(() => {
     const load = async () => {
       setStatus('Loading Bible data…')
-      const [en, ml] = await Promise.all([
-        fetchBibleFromFirebase('english'),
-        fetchBibleFromFirebase('malayalam'),
-      ])
+      const versions = await get(dbRef(db, 'bibleVersion')).then(s => s.val() || {}, () => undefined)
+      const ml = await loadBible('malayalam', versions)
+      if (ml) { setBibleML(ml); setStatus('Ready') }
+      const en = await loadBible('english', versions)
       if (en) setBibleEN(en)
-      if (ml) setBibleML(ml)
-      setStatus(en ? 'Ready' : 'Could not load Bible data')
+      if (!ml) setStatus(en ? 'Ready' : 'Could not load Bible data')
     }
     load()
+  }, [])
+
+  // Always start in Malayalam: reset the session's language, and ignore the stale
+  // saved value until that write lands so a leftover 'EN' can't flip the display.
+  const langResetDone = useRef(false)
+  useEffect(() => {
+    set(dbRef(db, `${P}/settings/language`), 'ML')
+      .catch(() => {})
+      .finally(() => { langResetDone.current = true })
   }, [])
 
   // Sync shared recent list from Firebase (written by both webapp and remote)
@@ -175,12 +244,9 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       if (!val) return
       const { displayMode: dm, isDark: dark, onSetTheme: setTheme } = stateRef.current
 
-      if (val.language && val.language !== dm) setDisplayMode(val.language)
+      if (langResetDone.current && (val.language === 'EN' || val.language === 'ML') && val.language !== dm) setDisplayMode(val.language)
 
-      if (val.theme !== undefined) {
-        const wantDark = val.theme === 'dark'
-        if (wantDark !== dark) setTheme?.(wantDark)
-      }
+      if (val.theme) setTheme?.(val.theme)   // theme id from the remote's picker
 
       if (val.fontSizeCmd?.ts > PAGE_LOAD_TIME && val.fontSizeCmd.ts > seen.fontSizeTs) {
         seen.fontSizeTs = val.fontSizeCmd.ts
@@ -194,6 +260,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           const { songState: ss, currentRef: cr } = stateRef.current
           if (ss) {
             if (ss.slideIdx > 0) showSongSlideRef.current(ss.filename, ss.slideIdx - 1)
+          } else if (mediaSeqRef.current) {
+            stepMediaRef.current('prev')
           } else if (cr?.verse > 1) {
             showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
           }
@@ -201,6 +269,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           const { songState: ss, currentRef: cr } = stateRef.current
           if (ss) {
             if (ss.slideIdx < ss.slides.length - 1) showSongSlideRef.current(ss.filename, ss.slideIdx + 1)
+          } else if (mediaSeqRef.current) {
+            stepMediaRef.current('next')
           } else if (cr) {
             showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
           }
@@ -244,9 +314,21 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     return onValue(dbRef(db, `${P}/currentMedia`), snap => {
       const val = snap.val()
       if (!val?.ts || val.ts < PAGE_LOAD_TIME) return
+      mediaSeqRef.current = val.seq || null
       setSongState(null)
       setCurrentRef(null)
-      setVerseRefLabel('')
+      setVerseRefLabel(val.label || '')
+      setMediaLang(val.lang || null)
+      if (val.type === 'text' && val.seq?.kind === 'holyMass') {
+        setMediaUrl(null)
+        setMediaHtml(null)
+        setMassPart({
+          text: val.text || '', role: val.role || null, note: val.note || null, label: val.label || '', ts: val.ts,
+          path: val.seq.path, key: val.seq.key, part: val.seq.part ?? 0, slide: val.seq.slide ?? 0,
+        })
+        return
+      }
+      setMassPart(null)
       if (val.type === 'clear') {
         setMediaUrl(null)
         setMediaHtml(null)
@@ -268,6 +350,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       }
     })
   }, [])
+
+  // Event frame (branding border) from the remote
+  const [eventFrame, setEventFrame] = useState(null)
+  useEffect(() => onValue(dbRef(db, `${P}/eventFrame`), snap => setEventFrame(snap.val())), [])
 
   // Listen for background image changes
   useEffect(() => {
@@ -295,14 +381,15 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     })
   }, [])
 
-  // Show initial verse once English data loads
+  // Show initial verse as soon as the on-screen language's data loads
   const initialVerseShown = useRef(false)
+  const activeBible = displayMode === 'EN' ? bibleEN : bibleML
   useEffect(() => {
-    if (bibleEN && !initialVerseShown.current) {
+    if (activeBible && !initialVerseShown.current) {
       initialVerseShown.current = true
       showVerseRef.current({ book: 'Genesis', chapter: 1, verse: 1 }, { addToRecent: false })
     }
-  }, [bibleEN])
+  }, [activeBible])
 
   const saveRecent = (refObj, label, text = '') => {
     const data = refObj?.ccc
@@ -370,12 +457,15 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
 
   const showVerse = useCallback(async (parsed, { addToRecent = true, rangeNav = false } = {}) => {
     if (!parsed) return
+    mediaSeqRef.current = null
+    setMediaLang(null)
+    setMassPart(null)
     setSongState(null)
     setMediaUrl(null)
     setMediaHtml(null)
     const { displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
-    const store = dm === 'ML' ? ml : en
-    const altStore = dm === 'ML' ? en : ml
+    const store = dm === 'EN' ? en : ml
+    const altStore = dm === 'EN' ? ml : en
     let { text, resolvedBook } = lookupVerse(store, parsed.book, parsed.chapter, parsed.verse)
     if (!text && altStore) {
       const alt = lookupVerse(altStore, parsed.book, parsed.chapter, parsed.verse)
@@ -410,7 +500,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       return
     }
 
-    if (dm === 'ML') {
+    if (dm !== 'EN') {
       setStatus(`Verse not found: ${parsed.book} ${parsed.chapter}:${parsed.verse}`)
       return
     }
@@ -442,6 +532,9 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
 
   // Load and display a CCC paragraph
   const handleSelectCCC = useCallback(async (paragraphNum) => {
+    mediaSeqRef.current = null
+    setMediaLang(null)
+    setMassPart(null)
     setSongState(null)
     let ccc = stateRef.current.cccData
     if (!ccc) {
@@ -472,12 +565,23 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
 
   // Load and display a song slide
   const showSongSlide = useCallback(async (filename, slideIdx) => {
-    let parsed
-    try {
-      const fileRef = storageRef(storage, `lyrics-text/${filename}.txt`)
-      const bytes = await getBytes(fileRef)
-      parsed = parseLyrics(new TextDecoder('utf-8').decode(bytes))
-    } catch {
+    mediaSeqRef.current = null
+    setMediaLang(null)
+    setMassPart(null)
+    // EN mode shows songs in Manglish (<song>.manglish.txt, same slide layout), falling back to Malayalam
+    const candidates = stateRef.current.displayMode === 'EN'
+      ? [[`lyrics-text/${filename}.manglish.txt`, 'EN'], [`lyrics-text/${filename}.txt`, 'ML']]
+      : [[`lyrics-text/${filename}.txt`, 'ML']]
+    let parsed, path, lang
+    for (const [p, l] of candidates) {
+      try {
+        const bytes = await getBytes(storageRef(storage, p))
+        parsed = parseLyrics(new TextDecoder('utf-8').decode(bytes))
+        path = p; lang = l
+        break
+      } catch { /* try next */ }
+    }
+    if (!parsed) {
       setStatus('Could not load song: ' + filename)
       return
     }
@@ -490,11 +594,64 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     setVerseRefLabel('')
     setVerseText(slide.text)
     setCurrentRef(null)
-    setSongState({ filename, title, slides, slideIdx: idx })
+    setSongState({ filename, title, slides, slideIdx: idx, path, lang })
     setSongHasEdits(false)
     setStatus(`${title} · ${slide.voice} · ${idx + 1}/${slides.length}`)
     set(dbRef(db, `${P}/liveSlide`), { type: 'song', filename, slideIdx: idx, ts: Date.now() }).catch(() => {})
   }, [])
+
+  const stepMedia = async (dir) => {
+    const seq = mediaSeqRef.current
+    if (!seq) return
+    let list = []  // [{ key, url, name }] in order
+    try {
+      if (seq.kind === 'holyMass') {
+        const val = (await get(dbRef(db, seq.path))).val() || {}  // shared Holy Mass list, not per session
+        list = Object.entries(val)
+          .sort(([, a], [, b]) => (a.ts || 0) - (b.ts || 0))
+          // one entry per speaker part; a page without text stays a single image entry
+          .flatMap(([key, d]) => {
+            const label = `${seq.title ? `${seq.title} · ` : ''}${d.label ? `Page ${d.label}` : 'Unnumbered'}`
+            const parts = (d.parts || []).filter(pt => pt.text)  // rubric-only parts aren't shown
+            const slides = parts.flatMap((pt, i) => (pt.slides?.length ? pt.slides : [pt.text])
+              .map((text, j) => ({ key, part: i, slide: j, url: d.url, name: label, text, role: pt.role || null })))
+            return slides.length ? slides : [{ key, part: 0, slide: 0, url: d.url, name: label, text: '' }]
+          })
+      } else if (seq.kind === 'slides') {
+        const deck = (await get(dbRef(db, `${P}/slideDecks/${seq.deckKey}`))).val()
+        list = (deck?.slides || []).map((sl, i) => ({ key: String(i), url: sl.url, name: `${deck.name} · ${i + 1}` }))
+      }
+    } catch { return }
+    const idxOf = (key, part, slide) => list.findIndex(i => i.key === key && (i.part ?? 0) === (part ?? 0) && (i.slide ?? 0) === (slide ?? 0))
+    const cur = idxOf(seq.key, seq.part, seq.slide)
+    let next = cur + (dir === 'next' ? 1 : -1)
+    const plan = activeMassPlanRef.current
+    if (seq.kind === 'holyMass' && plan?.path === seq.path && plan.items?.length) {
+      // plan order; from a slide outside the plan, go to the nearest plan slide in that direction
+      const planIdx = plan.items.map(it => idxOf(it.key, it.part, it.slide)).filter(i => i >= 0)
+      const pos = planIdx.indexOf(cur)
+      next = pos >= 0
+        ? planIdx[pos + (dir === 'next' ? 1 : -1)]
+        : (dir === 'next' ? planIdx.find(i => i > cur) : [...planIdx].reverse().find(i => i < cur))
+      if (next === undefined) return
+    }
+    const item = list[next]
+    if (!item || next < 0) return
+    const nextSeq = { ...seq, key: item.key, part: item.part ?? 0, slide: item.slide ?? 0 }
+    await set(dbRef(db, `${P}/currentMedia`), item.text
+      ? { type: 'text', text: item.text, role: item.role, label: item.name, lang: seq.lang || null, ts: Date.now(), seq: nextSeq }
+      : { type: 'image', url: item.url, name: item.name, ts: Date.now(), seq: nextSeq },
+    ).catch(() => {})
+  }
+  // Holy Mass: step through this part's screens first, then on to the next/previous part
+  const stepMass = (dir) => {
+    const { massChunks: chunks, massChunkIdx: idx } = stateRef.current
+    if (chunks && dir === 'next' && idx < chunks.length - 1) { setMassChunkIdx(idx + 1); return }
+    if (chunks && dir === 'prev' && idx > 0) { setMassChunkIdx(idx - 1); return }
+    stepMedia(dir)
+  }
+  const stepMediaRef = useRef(stepMass)
+  stepMediaRef.current = stepMass
 
   const showSongSlideRef = useRef(showSongSlide)
   showSongSlideRef.current = showSongSlide
@@ -522,8 +679,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     }
     const { currentRef: cr, displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
     if (!cr) return
-    const store = dm === 'ML' ? ml : en
-    const fbPath = dm === 'ML' ? 'malayalam' : 'english'
+    const store = dm === 'EN' ? en : ml
+    const fbPath = dm === 'EN' ? 'english' : 'malayalam'
     if (!store) return
     const { resolvedBook } = lookupVerse(store, cr.book, cr.chapter, cr.verse)
     const firebaseKey = store.nameToFirebaseKey?.[resolvedBook]
@@ -535,6 +692,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
         if (store.data?.[resolvedBook]?.[String(cr.chapter)]) {
           store.data[resolvedBook][String(cr.chapter)][String(cr.verse)] = newText
         }
+        // Bump the version so other devices re-download; keep this device's cache current
+        const version = Date.now()
+        await set(dbRef(db, `bibleVersion/${fbPath}`), version)
+        putCachedBible(fbPath, version, store)
         setStatus('Saved ✓')
         setTimeout(() => setStatus('Ready'), 2000)
       } catch {
@@ -552,7 +713,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     setSongSaving(true)
     try {
       const content = serializeLyrics(ss.title, ss.slides)
-      const fileRef = storageRef(storage, `lyrics-text/${ss.filename}.txt`)
+      const fileRef = storageRef(storage, ss.path)
       await uploadString(fileRef, content, 'raw', { contentType: 'text/plain; charset=utf-8' })
       setSongHasEdits(false)
       setStatus('Song saved ✓')
@@ -606,10 +767,13 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
         // Bible verse
         const { text } = lookupVerse(en, r.book, r.chapter, r.verse)
         if (!text) return null
-        const { text: textML } = ml ? lookupVerse(ml, r.book, r.chapter, r.verse) : { text: '' }
+        const { text: textML, resolvedBook: mlBook } = ml ? lookupVerse(ml, r.book, r.chapter, r.verse) : { text: '', resolvedBook: '' }
+        const ref = mlBook && mlBook !== r.book
+          ? `${r.book} ${r.chapter}:${r.verse} / ${mlBook} ${r.chapter}:${r.verse}`
+          : `${r.book} ${r.chapter}:${r.verse}`
         return {
           type: 'bible',
-          ref: `${r.book} ${r.chapter}:${r.verse}`,
+          ref,
           text,
           textML: textML || '',
           reason: r.reason,
@@ -685,6 +849,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       if (ss.slideIdx > 0) showSongSlideRef.current(ss.filename, ss.slideIdx - 1)
       return
     }
+    if (mediaSeqRef.current) { stepMass('prev'); return }
     if (cr?.verse > 1) showVerseRef.current({ ...cr, verse: cr.verse - 1 }, { addToRecent: false, rangeNav: true })
   }
   const nextVerse = () => {
@@ -693,6 +858,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
       if (ss.slideIdx < ss.slides.length - 1) showSongSlideRef.current(ss.filename, ss.slideIdx + 1)
       return
     }
+    if (mediaSeqRef.current) { stepMass('next'); return }
     if (cr) showVerseRef.current({ ...cr, verse: cr.verse + 1 }, { addToRecent: false, rangeNav: true })
   }
 
@@ -765,7 +931,7 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
   }, [])
 
   // Speech recognition — language follows display mode
-  const speechLang = displayMode === 'ML' ? 'ml-IN' : 'en-US'
+  const speechLang = displayMode === 'EN' ? 'en-US' : 'ml-IN'
   const { isListening, transcript, toggle: toggleSpeech, supported: speechSupported } =
     useSpeechRecognition({
       lang: speechLang,
@@ -829,10 +995,33 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
     return meta
   }, [bibleEN])
 
-  // Re-render current verse when mode changes
+  // Refit the Holy Mass slide when the window resizes
   useEffect(() => {
-    const cr = stateRef.current.currentRef
-    if (cr) showVerseRef.current(cr)
+    const onResize = () => setViewportTick(t => t + 1)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Holy Mass slides are pre-split in the data (the remote shows the same slides), so the
+  // display never splits further: it shrinks the text if a slide doesn't fit the screen.
+  useEffect(() => {
+    if (!massPart) { setMassChunks(null); setMassFontSize(null); return }
+    setMassChunks([massPart.text])
+    setMassChunkIdx(0)
+    setVerseText(massPart.text)
+    setVerseRefLabel(massPart.label)
+  }, [massPart])
+  useEffect(() => {
+    if (!massPart) return
+    const body = verseStageRef.current?.querySelector('[data-verse-body]')
+    setMassFontSize(fitFontSize(massPart.text, body, fontSize))
+  }, [massPart, fontSize, isFullscreen, viewportTick, mediaLang])
+
+  // Re-render current verse (or song slide, e.g. Malayalam ↔ Manglish) when mode changes
+  useEffect(() => {
+    const { currentRef: cr, songState: ss } = stateRef.current
+    if (ss) showSongSlideRef.current(ss.filename, ss.slideIdx)
+    else if (cr) showVerseRef.current(cr)
   }, [displayMode])
 
   return (
@@ -850,11 +1039,17 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           onPrev={prevVerse}
           onNext={nextVerse}
           displayMode={displayMode}
-          onSetMode={mode => { setDisplayMode(mode); setSongState(null) }}
+          onSetMode={setDisplayMode}
           onDecreaseFontSize={decreaseFontSize}
           onIncreaseFontSize={increaseFontSize}
-          onToggleTheme={onToggleTheme}
+          onToggleTheme={() => { const id = nextThemeId(theme?.id); onSetTheme?.(id); set(dbRef(db, `${P}/settings/theme`), id).catch(() => {}) }}
+          themeLabel={theme?.label}
           onToggleFullscreen={toggleFullscreen}
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+          sessions={sessions}
+          currentSession={sessionPrefix}
+          onSwitchSession={onSwitchSession}
           bookAliases={bookAliases}
           bibleMeta={bibleMeta}
           onSelectVerse={handleSelectVerse}
@@ -967,8 +1162,8 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           isDark={isDark}
           verseRef={verseRefLabel}
           verseText={verseText}
-          displayMode={songState ? 'ML' : displayMode}
-          fontSize={fontSize}
+          displayMode={songState ? songState.lang : mediaLang || displayMode}
+          fontSize={massPart && massFontSize ? massFontSize : fontSize}
           isRecording={isListening}
           isFullscreen={isFullscreen}
           onVerseEdit={handleVerseEdit}
@@ -981,6 +1176,10 @@ export function MainApp({ isDark, onToggleTheme, onSetTheme, sessionPrefix = 're
           mediaHtml={mediaHtml}
           bgImageUrl={bgImageUrl}
           bgImageOpacity={bgImageOpacity}
+          eventFrame={eventFrame}
+          theme={theme}
+          isMassMode={!!massPart}
+          massRole={massPart?.role}
         />
 
         <RecentVerses
