@@ -63,16 +63,12 @@ export function Header({
       {/* ── Controls row ── */}
       <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
 
-        {/* Mic */}
-        <button
-          onClick={onToggleSpeech}
-          disabled={!speechSupported}
-          className={recBtn}
-          title={isListening ? 'Stop (M)' : 'Start voice (M)'}
-        >
-          <MicIcon active={isListening} />
-          <span className="ml-1 hidden sm:inline">{isListening ? 'Stop' : 'Start'}</span>
-        </button>
+        {/* Listening indicator: voice search runs on the owner's remote */}
+        {isListening && (
+          <span className={recBtn} title="Listening on the remote">
+            <MicIcon active />
+          </span>
+        )}
 
         {/* Prev / Next */}
         <button onClick={onPrev} className={ghostBtn} title="Previous verse (←)">◀</button>

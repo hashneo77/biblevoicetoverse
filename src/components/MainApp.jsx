@@ -7,7 +7,6 @@ import { getCachedBible, putCachedBible } from '../bibleCache'
 import { parseReference } from '../utils/parseReference'
 import { tfidfSearch } from '../utils/tfidf'
 import { parseLyrics, serializeLyrics } from '../utils/parseLyrics'
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition'
 import { Header } from './Header'
 import { nextThemeId } from '../themes'
 import { VerseStage } from './VerseStage'
@@ -930,27 +929,36 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     }
   }, [])
 
-  // Speech recognition — language follows display mode
-  const speechLang = displayMode === 'EN' ? 'en-US' : 'ml-IN'
-  const { isListening, transcript, toggle: toggleSpeech, supported: speechSupported } =
-    useSpeechRecognition({
-      lang: speechLang,
-      onResult: async text => {
-        const parsed = parseReference(text, bookAliases)
-        if (parsed) { showVerseRef.current(parsed); return }
-        setStatus('Parsing voice with AI…')
-        try {
-          const { bibleEN: en } = stateRef.current
-          const bookNames = en ? Object.keys(en.data) : []
-          const result = await parseVoiceRefCallable({ transcript: text, bookNames })
-          if (result.data?.ref) showVerseRef.current(result.data.ref)
-          else setStatus('Could not parse: ' + text)
-        } catch {
-          setStatus('Could not parse: ' + text)
-        }
-      },
-      onError: err => setStatus('Speech error: ' + err),
-    })
+  // Voice search runs on the owner's remote: it writes `${P}/voice` = { listening, final: { text, ts } },
+  // and the display turns the spoken words into a verse (reference parser, then AI)
+  const handleVoiceText = async text => {
+    const parsed = parseReference(text, bookAliases)
+    if (parsed) { showVerseRef.current(parsed); return }
+    setStatus('Parsing voice with AI…')
+    try {
+      const { bibleEN: en } = stateRef.current
+      const bookNames = en ? Object.keys(en.data) : []
+      const result = await parseVoiceRefCallable({ transcript: text, bookNames })
+      if (result.data?.ref) showVerseRef.current(result.data.ref)
+      else setStatus('Could not parse: ' + text)
+    } catch {
+      setStatus('Could not parse: ' + text)
+    }
+  }
+  const handleVoiceTextRef = useRef(handleVoiceText)
+  handleVoiceTextRef.current = handleVoiceText
+  const [voice, setVoice] = useState(null)
+  const voiceTsRef = useRef(PAGE_LOAD_TIME)
+  useEffect(() => onValue(dbRef(db, `${P}/voice`), snap => {
+    const v = snap.val()
+    setVoice(v)
+    if (v?.final?.text && v.final.ts > voiceTsRef.current) {
+      voiceTsRef.current = v.final.ts
+      handleVoiceTextRef.current(v.final.text)
+    }
+  }), [])
+  const isListening = !!voice?.listening
+  const transcript = isListening && voice?.final?.text ? `Heard: ${voice.final.text}` : ''
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -966,7 +974,6 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
         case 'ArrowLeft':  ev.preventDefault(); prevVerse(); break
         case 'ArrowRight': ev.preventDefault(); nextVerse(); break
         case 'f': case 'F': ev.preventDefault(); toggleFullscreen(); break
-        case 'm': case 'M': ev.preventDefault(); toggleSpeech(); break
         case 'e': case 'E':
           ev.preventDefault()
           setDisplayMode(m => m === 'EN' ? 'ML' : 'EN')
@@ -975,7 +982,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [toggleSpeech])
+  }, [])
 
   // bibleMeta for search
   const bibleMeta = useMemo(() => {
@@ -1034,8 +1041,6 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
         <Header
           isDark={isDark}
           isListening={isListening}
-          speechSupported={speechSupported}
-          onToggleSpeech={toggleSpeech}
           onPrev={prevVerse}
           onNext={nextVerse}
           displayMode={displayMode}

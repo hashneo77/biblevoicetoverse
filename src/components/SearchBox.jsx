@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { searchSongs } from '../utils/songSearch'
 import { getSearchSuggestions, getCCCSuggestions } from '../utils/parseReference'
 
 export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoading, isDark, songs, onSelectSong, onSongAiSearch, songAiLoading }) {
@@ -23,11 +24,10 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
     return getSearchSuggestions(query, books, bibleMeta)
   }, [query, books, bibleMeta, aiMode, songMode, isCCCQuery])
 
-  // Instant title-only match (no transliteration needed — titles are already romanized)
+  // Instant match on title + opening lyrics, ignoring Manglish spelling differences
   const songTitleSuggestions = useMemo(() => {
     if (!songMode || !query || !songs?.length) return []
-    const q = query.toLowerCase()
-    return songs.filter(s => s.title.toLowerCase().includes(q)).slice(0, 12)
+    return searchSongs(songs, query, 12)
   }, [query, songs, songMode])
 
   const suggestions = songMode ? songTitleSuggestions : bibleSuggestions

@@ -4,6 +4,8 @@ import { httpsCallable } from 'firebase/functions';
 import { ref as storageRef, getBytes, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { EventFrame, FRAME_FONTS, defaultFrameItems, frameItems } from './EventFrame';
 import { THEMES, getTheme } from './themes';
+import { searchSongs } from './songSearch';
+import { useSpeechRecognition } from './useSpeechRecognition';
 import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut, GoogleAuthProvider } from 'firebase/auth';
 import { auth, db, functions, storage, DB_URL, OWNER_EMAIL, emailKey, sessionForEmail } from './firebase';
 import { convertToSlides, slideFileKind, SLIDE_ACCEPT } from './slideConvert';
@@ -252,6 +254,21 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   };
 
   const [language, setLanguage] = useState('ML');
+  // Voice search (owner only): speech is recognised on this phone; the display finds the verse
+  const [voiceHeard, setVoiceHeard] = useState('');
+  const voice = useSpeechRecognition({
+    lang: language === 'EN' ? 'en-US' : 'ml-IN',
+    onResult: text => {
+      setVoiceHeard(text);
+      update(ref(db, `${P}/voice`), { final: { text, ts: Date.now() } }).catch(e => setError('Voice: ' + e.message));
+    },
+    onError: err => setError('Voice: ' + err),
+  });
+  useEffect(() => {
+    if (!isOwner) return;
+    update(ref(db, `${P}/voice`), { listening: voice.isListening }).catch(() => {});
+    if (!voice.isListening) setVoiceHeard('');
+  }, [voice.isListening]);
   const [theme, setTheme] = useState('light');
   const [themeMenu, setThemeMenu] = useState(false);   // theme picker open
 
@@ -1089,8 +1106,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
   const songResults = useMemo(() => {
     if (!songsManifest || !songQuery.trim()) return songsManifest ? [] : null;
-    const q = songQuery.toLowerCase();
-    return songsManifest.filter(s => s.title.toLowerCase().includes(q)).slice(0, 20);
+    return searchSongs(songsManifest, songQuery, 20);   // title + opening lyrics, spelling-tolerant
   }, [songsManifest, songQuery]);
 
   const songAiSearch = async () => {
@@ -1317,6 +1333,14 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         >
           <FullscreenIcon />
         </button>
+        {isOwner && voice.supported && (
+          <button className={`settings-btn icon-only voice-btn${voice.isListening ? ' voice-on' : ''}`}
+            onClick={voice.toggle} aria-label={voice.isListening ? 'Stop voice search' : 'Voice search'} disabled={frozen}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><line x1="12" y1="17" x2="12" y2="22" />
+            </svg>
+          </button>
+        )}
         <div className="settings-row-break" />
         <button className={`settings-btn lang-btn${language === 'ML' ? ' active' : ''}`} onClick={toggleLanguage} disabled={frozen}>
           {language}
@@ -1342,6 +1366,13 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
           <LockIcon locked={frozen} />
         </button>
       </div>
+
+      {isOwner && voice.isListening && (
+        <div className="voice-strip">
+          <span className="voice-dot" /> Listening ({language === 'EN' ? 'English' : 'Malayalam'}) — say a verse, e.g. "John 3 16"
+          {voiceHeard && <span className="voice-heard">Heard: {voiceHeard}</span>}
+        </div>
+      )}
 
       {/* Theme picker */}
       {themeMenu && (
