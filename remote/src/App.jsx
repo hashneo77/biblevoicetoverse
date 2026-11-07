@@ -1418,6 +1418,10 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       setView('verses');
       setVersesLoading(true);
       setError(null);
+      // fill the chapter list too, so Back from the verses doesn't show an empty Chapters page
+      restFetch(`english/${key}/chapters`, true)
+        .then(chData => setChapters(Object.keys(chData || {}).map(k => k.replace(/^ch/, '')).sort((x, y) => +x - +y)))
+        .catch(() => {});
       try {
         const vData = await restFetch(`english/${key}/chapters/ch${chapter}`, true);
         const vs = Object.keys(vData || {}).map(Number).filter(n => !isNaN(n)).sort((a, b) => a - b);
