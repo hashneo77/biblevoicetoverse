@@ -1,5 +1,6 @@
 import { forwardRef, useRef, useEffect } from 'react'
 import { EventFrame } from './EventFrame'
+import { sanitizeHtml } from '../utils/sanitizeHtml'
 
 export const VerseStage = forwardRef(function VerseStage(
   {
@@ -16,13 +17,16 @@ export const VerseStage = forwardRef(function VerseStage(
     onSaveSong,
     songSaving,
     songHasEdits,
+    songSaveError,
     mediaUrl,
     mediaHtml,
     bgImageUrl,
     bgImageOpacity,
     massRole,   // Holy Mass slide: speaker label, e.g. 'കാർമി.' / 'C.'
     massNote,   // Holy Mass slide: pink heading / rubric shown above the words
+    massPeople, // Holy Mass slide spoken by the People: words shown in the highlight colour
     isMassMode,
+    canEdit = true,   // "Edit text on the display" feature
     theme,        // colour theme from themes.js: bg, text, ref, role, glow
     eventFrame,   // { enabled, title, subtitle, verse, verseRef, footer } — event branding frame
   },
@@ -83,7 +87,7 @@ export const VerseStage = forwardRef(function VerseStage(
         <button
           onClick={onSaveSong}
           disabled={songSaving}
-          title="Save lyrics to Firebase Storage"
+          title={songSaveError || 'Save lyrics to Firebase Storage'}
           className={`
             absolute top-3 left-3 sm:top-4 sm:left-4 px-2.5 py-1 rounded-lg text-xs font-semibold
             transition-all duration-150
@@ -93,7 +97,7 @@ export const VerseStage = forwardRef(function VerseStage(
             }
           `}
         >
-          {songSaving ? 'Saving…' : 'Save'}
+          {songSaving ? 'Saving…' : songSaveError ? `Save failed — ${songSaveError}. Tap to retry` : 'Save'}
         </button>
       )}
 
@@ -132,7 +136,7 @@ export const VerseStage = forwardRef(function VerseStage(
               : '0 0 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.12)',
             ...(theme ? { color: theme.text, textShadow: theme.glow } : {}),
           }}
-          dangerouslySetInnerHTML={{ __html: mediaHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(mediaHtml) }}
         />
       ) : (
       <div className="w-full">
@@ -181,14 +185,14 @@ export const VerseStage = forwardRef(function VerseStage(
         <div
           ref={bodyRef}
           data-verse-body
-          contentEditable={!isMassMode}
+          contentEditable={!isMassMode && canEdit}
           suppressContentEditableWarning
           spellCheck={false}
           onInput={e => onVerseEdit(e.currentTarget.innerText)}
           className={`
             leading-relaxed outline-none cursor-text rounded px-1 font-bold
             ${isMalayalam ? 'font-malayalam' : 'font-verse'}
-            ${isDark ? 'text-slate-100' : 'text-slate-800'}
+            ${isMassMode && massPeople ? (isDark ? 'text-amber-300' : 'text-amber-700') : (isDark ? 'text-slate-100' : 'text-slate-800')}
           `}
           style={{
             fontSize: `min(${fontSize}px, 9vw)`,
@@ -196,7 +200,7 @@ export const VerseStage = forwardRef(function VerseStage(
             textShadow: isDark
               ? '0 0 10px rgba(255,255,255,0.15), 0 0 24px rgba(251,191,36,0.12), 0 2px 4px rgba(0,0,0,0.9)'
               : '0 0 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.12)',
-            ...(theme ? { color: theme.text, textShadow: theme.glow } : {}),
+            ...(theme ? { color: isMassMode && massPeople ? theme.role : theme.text, textShadow: theme.glow } : {}),
           }}
         />
       </div>

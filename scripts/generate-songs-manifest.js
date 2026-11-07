@@ -76,13 +76,15 @@ function parseSong(content) {
     const trimmed = lines[i].trim()
     if (trimmed === 'M' || trimmed === 'F' || trimmed === 'A') {
       voices.push(trimmed)
-    } else if (trimmed && !trimmed.startsWith('=')) {
+    } else if (trimmed && !trimmed.startsWith('=') && !/^Artist\s*:/i.test(trimmed)) {
       textParts.push(trimmed)
     }
   }
 
-  const text = textParts.join(' ').slice(0, 300)
-  const r = normalizeSearch(romanize(text))
+  // text: the opening lyrics, for previews. r: every distinct line of the song, romanised, so
+  // search finds words from any verse or chorus (repeated lines are indexed once)
+  const text = textParts.join(' ').slice(0, 150)
+  const r = normalizeSearch(romanize([...new Set(textParts)].join(' ')))
   return { title, voices, text, r }
 }
 

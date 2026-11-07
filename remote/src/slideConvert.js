@@ -18,8 +18,35 @@ export function slideFileKind(files) {
 const canvasToJpeg = canvas => new Promise((resolve, reject) =>
   canvas.toBlob(b => (b ? resolve(b) : reject(new Error('Could not encode slide'))), 'image/jpeg', JPEG_QUALITY));
 
-// Returns [{ blob, ext }] in slide order.
+// Every slide is delivered as 16:9 (1920x1080). Slides already 16:9 are left alone; anything else
+// (portrait pages, A4, 4:3) is fitted whole onto a white 16:9 page, centred, nothing cropped.
+async function fitTo169(slide) {
+  let bmp;
+  try { bmp = await createImageBitmap(slide.blob); } catch { return slide; }
+  const ratio = bmp.width / bmp.height;
+  if (Math.abs(ratio / (16 / 9) - 1) < 0.02) { bmp.close?.(); return slide; }
+  const canvas = document.createElement('canvas');
+  canvas.width = SLIDE_WIDTH;
+  canvas.height = SLIDE_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, SLIDE_WIDTH, SLIDE_HEIGHT);
+  const scale = Math.min(SLIDE_WIDTH / bmp.width, SLIDE_HEIGHT / bmp.height);
+  const w = bmp.width * scale, h = bmp.height * scale;
+  ctx.drawImage(bmp, (SLIDE_WIDTH - w) / 2, (SLIDE_HEIGHT - h) / 2, w, h);
+  bmp.close?.();
+  return { blob: await canvasToJpeg(canvas), ext: 'jpg' };
+}
+
+// Returns [{ blob, ext }] in slide order, all 16:9.
 export async function convertToSlides(files, onProgress) {
+  const raw = await convertRaw(files, onProgress);
+  const out = [];
+  for (const s of raw) out.push(await fitTo169(s));
+  return out;
+}
+
+async function convertRaw(files, onProgress) {
   const kind = slideFileKind(files);
   if (kind === 'pdf') return pdfToSlides(files[0], onProgress);
   if (kind === 'pptx') return pptxToSlides(files[0], onProgress);

@@ -9,6 +9,23 @@ service firebase.storage {
         && (request.auth.token.email == 'josephgeorge7797@gmail.com' || request.auth.token.allowed == true);
     }
 
+    function isOwner() {
+      return allowed() && request.auth.token.email == 'josephgeorge7797@gmail.com';
+    }
+
+    // Private uploads (media, slides, event-frame) record the uploader's uid in customMetadata.owner.
+    // Only the uploader or the owner may delete them; older files without it are owner-only.
+    function uploadedBySelf() {
+      return allowed()
+        && resource.metadata != null
+        && resource.metadata.get('owner', '') == request.auth.uid;
+    }
+
+    function ownedByCaller() {
+      return request.resource.metadata != null
+        && request.resource.metadata.get('owner', '') == request.auth.uid;
+    }
+
     // Image uploads from the remote: `<timestamp>-<random>.<ext>`, images only, max 20 MB
     function isNewImage(filename) {
       return allowed()
@@ -17,37 +34,44 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
-    // Song lyrics (Malayalam .txt and .manglish.txt): edits to existing files only
+    // Reads use `get` only: object names are random, and nobody but the owner may list a folder,
+    // so one user can't enumerate another user's uploads.
+
+    // Song lyrics (Malayalam .txt and .manglish.txt): read only — edits and new songs are written by
+    // the saveLyricsFile / saveSong functions, which check the editText / addSong features
     match /lyrics-text/{filename} {
-      allow read: if allowed();
-      allow update: if allowed()
-        && filename.matches('.*[.]txt')
-        && request.resource.size < 200 * 1024
-        && request.resource.contentType.matches('text/plain.*');
+      allow get: if allowed();
+      allow list: if isOwner();
     }
     match /media/{filename} {
-      allow read: if allowed();
-      allow create: if isNewImage(filename);
-      allow delete: if allowed();
+      allow get: if allowed();
+      allow list: if isOwner();
+      allow create: if isNewImage(filename) && ownedByCaller();
+      allow delete: if isOwner() || uploadedBySelf();
     }
     // Slide decks from the remote: slides/<timestamp>-<random>/NNN.<ext>, images only, max 20 MB each
     match /slides/{deckId}/{filename} {
-      allow read: if allowed();
+      allow get: if allowed();
+      allow list: if isOwner();
       allow create: if allowed()
+        && ownedByCaller()
         && deckId.matches('[0-9]{13}-[a-z0-9]+')
         && filename.matches('[0-9]{3}[.][a-z]{3,4}')
         && request.resource.size < 20 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow delete: if allowed();
+      allow delete: if isOwner() || uploadedBySelf();
     }
     // Event frame logos (uploaded by the owner from the remote)
     match /event-frame/{filename} {
-      allow read: if allowed();
-      allow create: if isNewImage(filename);
-      allow delete: if allowed();
+      allow get: if allowed();
+      allow list: if isOwner();
+      allow create: if isNewImage(filename) && ownedByCaller();
+      allow delete: if isOwner() || uploadedBySelf();
     }
+    // Holy Mass pages are one shared book that every allowed user may edit (see database.rules.json)
     match /holy-mass/{filename} {
-      allow read: if allowed();
+      allow get: if allowed();
+      allow list: if isOwner();
       allow create: if isNewImage(filename);
       allow delete: if allowed();
     }

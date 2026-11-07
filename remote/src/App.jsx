@@ -1,14 +1,19 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ref, set, push, onValue, get, update } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
-import { ref as storageRef, getBytes, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { EventFrame, FRAME_FONTS, defaultFrameItems, frameItems } from './EventFrame';
 import { THEMES, getTheme } from './themes';
-import { searchSongs } from './songSearch';
+import { searchSongs, withAddedSongs } from './songSearch';
+import { AddSong } from './AddSong';
+import { FEATURES, featureAccess } from './features';
 import { useSpeechRecognition } from './useSpeechRecognition';
+import { parseReference } from './parseReference';
 import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut, GoogleAuthProvider } from 'firebase/auth';
 import { auth, db, functions, storage, DB_URL, OWNER_EMAIL, emailKey, sessionForEmail } from './firebase';
 import { convertToSlides, slideFileKind, SLIDE_ACCEPT } from './slideConvert';
+import { loadMassBook, massVersionPath, bumpMassVersion, loadSongsManifest, loadLyrics } from './offlineCache';
+import { sanitizeHtml } from './sanitizeHtml';
 import './App.css';
 
 const OT_BOOKS = [
@@ -29,11 +34,19 @@ const NT_BOOKS = [
 
 const ALL_BOOKS = [...OT_BOOKS, ...NT_BOOKS];
 
-// Holy Mass collections: page lists shared by every PIN session (not under <session>/)
+// Upload metadata for a user's own media/slides/event-frame files: storage.rules only lets the
+// uploader (or the owner) delete a file whose `owner` matches their uid
+const ownedUpload = (contentType) => ({ contentType, customMetadata: { owner: auth.currentUser?.uid || '' } });
+
+// Page books shared by every session (not under <session>/), shown with the same page viewer:
+// the Holy Mass tile lists group 'mass', the Prayers tile group 'prayers'
 const HOLY_MASS_SECTIONS = {
-  ml: { label: 'Malayalam Mass', path: 'holyMass/malayalam', lang: 'ML' },
-  en: { label: 'Manglish Mass', path: 'holyMass/manglish', lang: 'EN' },
+  ml: { label: 'Malayalam Mass', path: 'holyMass/malayalam', lang: 'ML', group: 'mass' },
+  en: { label: 'Manglish Mass', path: 'holyMass/manglish', lang: 'EN', group: 'mass' },
+  eng: { label: 'English Mass', path: 'holyMass/english', lang: 'EN', group: 'mass' },   // Roman Missal, one page per section
+  novena: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena', lang: 'ML', group: 'prayers' },
 };
+const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
 // Malayalam book names, keyed by the exact English names used above.
 // NOTE: the Malayalam Bible in Firebase uses the same b1..b73 key scheme as the
@@ -116,6 +129,19 @@ const BOOK_NAME_ML = {
   'Revelation': 'വെളിപാട്',
 };
 
+const BOOKS_CACHE_KEY = 'bv_books_cache';
+
+// "just now", "5 min ago", "3 h ago", "2 days ago"
+function timeAgo(ts) {
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d !== 1 ? 's' : ''} ago`;
+}
+
 const restFetch = async (path, shallow = false) => {
   const token = await auth.currentUser?.getIdToken();  // database reads require an allowed account
   const params = new URLSearchParams();
@@ -162,6 +188,8 @@ function rememberOwnerSession(session) {
 // Each user has a private session, shared by their own display and remote.
 async function syncClaims(user) {
   try {
+    const { claims } = await user.getIdTokenResult();
+    if (claims.allowed || claims.email === OWNER_EMAIL) return;   // already set — skip the slow function call
     await httpsCallable(functions, 'syncAccess')();
     await user.getIdToken(true);
   } catch { /* Storage may refuse until next sign-in; the database still works */ }
@@ -169,7 +197,7 @@ async function syncClaims(user) {
 
 async function resolveAccess(user) {
   const access = await checkAccess(user);
-  if (access.status === 'allowed') await syncClaims(user);
+  if (access.status === 'allowed') syncClaims(user);   // in the background; only Storage needs the claim
   return access;
 }
 
@@ -249,6 +277,16 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     });
   }, []);
 
+  const RECENT_SONGS_PATH = `${P}/recentSongs`;
+  const [recentSongs, setRecentSongs] = useState([]);
+  useEffect(() => onValue(ref(db, RECENT_SONGS_PATH), snap => {
+    const list = Object.entries(snap.val() || {})
+      .map(([filename, d]) => ({ filename, title: d.title || filename, ts: d.ts || 0 }))
+      .sort((a, b) => b.ts - a.ts);
+    setRecentSongs(list.slice(0, 30));
+    list.slice(30).forEach(s => set(ref(db, `${RECENT_SONGS_PATH}/${s.filename}`), null).catch(() => {}));
+  }), []);
+
   const pushRecentSent = (item) => {
     push(ref(db, RECENT_ITEMS_PATH), { ...item, ts: Date.now() });
   };
@@ -256,18 +294,93 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   const [language, setLanguage] = useState('ML');
   // Voice search (owner only): speech is recognised on this phone; the display finds the verse
   const [voiceHeard, setVoiceHeard] = useState('');
+  // Voice search (admin only). Android Chrome reports a "final" result every word or two, each
+  // repeating the phrase so far, so results are gathered and sent once after a pause in speech.
+  // Features this account may use: all for the owner, otherwise set by the owner per person
+  const [featureOverrides, setFeatureOverrides] = useState({});
+  useEffect(() => (isOwner ? undefined
+    : onValue(ref(db, `config/access/${emailKey(userEmail)}/features`), snap => setFeatureOverrides(snap.val() || {}), () => setFeatureOverrides({}))),
+  [isOwner, userEmail]);
+  const can = useMemo(() => featureAccess(isOwner, featureOverrides), [isOwner, featureOverrides]);
+  const canVoice = can.voice;
+  const voicePending = useRef({ text: '', timer: null, lastSent: '' });
+  const sendVoice = () => {
+    const vp = voicePending.current;
+    const text = vp.text.trim();
+    vp.text = '';
+    if (!text || text === vp.lastSent) return;
+    vp.lastSent = text;
+    resolveVoice(text);
+  };
+  // Turn a spoken phrase into a verse: quick parser (English names), then the AI voice parser
+  // (Malayalam / Manglish). Only phrases that match an existing verse are listed.
+  const [voiceMatches, setVoiceMatches] = useState([]);   // [{ id, book, chapter, verse, en, ml, mlName, heard }]
+  const [voiceBusy, setVoiceBusy] = useState(0);
+  const [voiceSentId, setVoiceSentId] = useState(null);
+  const voiceAliasesRef = useRef(null);
+  const nameToKeyRef = useRef({});
+  nameToKeyRef.current = nameToKey;
+  const nameToKeyMLRef = useRef({});   // English name → Malayalam book key (the two Bibles number books differently)
+  nameToKeyMLRef.current = nameToKeyML;
+  const resolveVoice = async (text) => {
+    setVoiceBusy(n => n + 1);
+    try {
+      if (!voiceAliasesRef.current) {
+        voiceAliasesRef.current = await fetch('/book_aliases.json').then(r => r.json()).catch(() => ({}));
+      }
+      let vref = parseReference(text, voiceAliasesRef.current);
+      if (!vref) {
+        try {
+          const r = await httpsCallable(functions, 'parseVoiceRef')({ transcript: text, bookNames: Object.keys(nameToKeyRef.current) });
+          vref = r.data?.ref || null;
+        } catch { vref = null; }
+      }
+      const key = vref && nameToKeyRef.current[vref.book];
+      if (!key) return;
+      const mlKey = nameToKeyMLRef.current[vref.book];
+      const [en, ml, mlName] = await Promise.all([
+        restFetch(`english/${key}/chapters/ch${vref.chapter}/${vref.verse}`).catch(() => null),
+        mlKey ? restFetch(`malayalam/${mlKey}/chapters/ch${vref.chapter}/${vref.verse}`).catch(() => null) : null,
+        mlKey ? restFetch(`malayalam/${mlKey}/name`).catch(() => null) : null,
+      ]);
+      if (!en && !ml) return;                              // no such verse
+      const id = `${vref.book} ${vref.chapter}:${vref.verse}`;
+      setVoiceMatches(list => [{ id, ...vref, en, ml, mlName, heard: text }, ...list.filter(m => m.id !== id)].slice(0, 20));
+    } finally {
+      setVoiceBusy(n => n - 1);
+    }
+  };
+  const sendVoiceMatch = async (m) => {
+    try {
+      await set(ref(db, `${P}/currentVerse`), { book: m.book, chapter: m.chapter, verse: m.verse, timestamp: Date.now() });
+      pushRecentSent({ key: m.id, type: 'bible', book: m.book, chapter: m.chapter, verse: m.verse, text: typeof m.en === 'string' ? m.en : '' });
+      setVoiceSentId(m.id);
+      setSent(m.id);
+      setTimeout(() => setSent(null), 2000);
+    } catch (e) { setError('Send failed: ' + e.message); }
+  };
   const voice = useSpeechRecognition({
     lang: language === 'EN' ? 'en-US' : 'ml-IN',
     onResult: text => {
-      setVoiceHeard(text);
-      update(ref(db, `${P}/voice`), { final: { text, ts: Date.now() } }).catch(e => setError('Voice: ' + e.message));
+      const vp = voicePending.current;
+      const t = text.trim();
+      // repeated phrase growing (Android) → keep the fuller one; separate pieces (desktop) → join
+      if (!vp.text || t.startsWith(vp.text) || vp.text.endsWith(t)) vp.text = t.length >= vp.text.length ? t : vp.text;
+      else vp.text = `${vp.text} ${t}`;
+      setVoiceHeard(vp.text);
+      clearTimeout(vp.timer);
+      vp.timer = setTimeout(sendVoice, 1200);
     },
     onError: err => setError('Voice: ' + err),
   });
   useEffect(() => {
-    if (!isOwner) return;
-    update(ref(db, `${P}/voice`), { listening: voice.isListening }).catch(() => {});
-    if (!voice.isListening) setVoiceHeard('');
+    if (!canVoice) return;
+    if (!voice.isListening) {               // stopped: send anything still waiting
+      clearTimeout(voicePending.current.timer);
+      sendVoice();
+      voicePending.current.lastSent = '';
+      setVoiceHeard('');
+    }
   }, [voice.isListening]);
   const [theme, setTheme] = useState('light');
   const [themeMenu, setThemeMenu] = useState(false);   // theme picker open
@@ -289,7 +402,11 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
   // Songs
   const [songsView, setSongsView] = useState(false);
-  const [songsManifest, setSongsManifest] = useState(null);
+  const [publishedSongs, setSongsManifest] = useState(null);
+  const [addedSongs, setAddedSongs] = useState({});   // songs added with "Add song" (songsAdded)
+  const songsManifest = useMemo(() => withAddedSongs(publishedSongs, addedSongs), [publishedSongs, addedSongs]);
+  const [addSongView, setAddSongView] = useState(false);
+  useEffect(() => onValue(ref(db, 'songsAdded'), snap => setAddedSongs(snap.val() || {}), () => {}), []);
   const [songsManifestLoading, setSongsManifestLoading] = useState(false);
   const [songQuery, setSongQuery] = useState('');
   const [selectedSong, setSelectedSong] = useState(null); // { filename, title, slides }
@@ -324,8 +441,13 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
   // Holy Mass
   const [holyMassView, setHolyMassView] = useState(false);
+  // the theme button is hidden in Holy Mass, so close its menu on the way in
+  useEffect(() => { if (holyMassView) setThemeMenu(false); }, [holyMassView]);
   const [holyMassSection, setHolyMassSection] = useState(null); // null = Holy Mass menu; else a HOLY_MASS_SECTIONS key
-  const [holyMassLibraries, setHolyMassLibraries] = useState({ ml: [], en: [] });
+  const [holyMassLibraries, setHolyMassLibraries] = useState(() => Object.fromEntries(Object.keys(HOLY_MASS_SECTIONS).map(k => [k, []])));
+  const [massGroup, setMassGroup] = useState('mass');   // which tile opened the page viewer: 'mass' | 'prayers'
+  const [holyMassLoaded, setHolyMassLoaded] = useState({});   // { ml: true } once that section has arrived
+  const [holyMassWanted, setHolyMassWanted] = useState(false); // the Mass book is ~6 MB: load it only when opened
   const holyMassLibrary = holyMassLibraries[holyMassSection] || [];
   const [holyMassUploading, setHolyMassUploading] = useState(false);
   const [activeHolyMassKey, setActiveHolyMassKey] = useState(null);
@@ -344,6 +466,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
   // Slides: decks made from a PDF / PowerPoint / images, tagged, sent one slide at a time
   const [slidesView, setSlidesView] = useState(false);
+  const [voiceView, setVoiceView] = useState(false);       // Voice Search screen (owner only)
   const [slideDecks, setSlideDecks] = useState([]);
   const [openDeckKey, setOpenDeckKey] = useState(null);
   const [activeSlide, setActiveSlide] = useState(null); // { deckKey, idx }
@@ -368,7 +491,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     setShowTextForm(true);
     setTimeout(() => {
       if (textEditorRef.current) {
-        textEditorRef.current.innerHTML = item.html || item.text || '';
+        textEditorRef.current.innerHTML = sanitizeHtml(item.html || item.text);
         textEditorRef.current.focus();
       }
     }, 30);
@@ -411,17 +534,24 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     });
   }, []);
 
+  useEffect(() => { if (holyMassView) setHolyMassWanted(true); }, [holyMassView]);
+
   useEffect(() => {
+    if (!holyMassWanted) return;
+    // Each book is kept on the phone and downloaded again only when its version changes (it was edited)
     const unsubs = Object.entries(HOLY_MASS_SECTIONS).map(([section, { path }]) =>
-      onValue(ref(db, path), snap => {
-        const val = snap.val() || {};
-        const items = Object.entries(val)
-          .map(([key, data]) => ({ key, ...data }))
-          .sort((a, b) => (a.ts || 0) - (b.ts || 0));
-        setHolyMassLibraries(prev => ({ ...prev, [section]: items }));
+      onValue(ref(db, massVersionPath(path)), async snap => {
+        try {
+          const val = await loadMassBook(path, snap.val());
+          const items = Object.entries(val)
+            .map(([key, data]) => ({ key, ...data }))
+            .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+          setHolyMassLibraries(prev => ({ ...prev, [section]: items }));
+        } catch { /* offline: keep what's shown */ }
+        setHolyMassLoaded(prev => ({ ...prev, [section]: true }));
       }));
     return () => unsubs.forEach(u => u());
-  }, []);
+  }, [holyMassWanted]);
 
   useEffect(() => {
     return onValue(ref(db, `${P}/slideDecks`), snap => {
@@ -440,7 +570,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       const ext = file.name.split('.').pop();
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const fileRef = storageRef(storage, `media/${filename}`);
-      await uploadBytes(fileRef, file, { contentType: file.type });
+      await uploadBytes(fileRef, file, ownedUpload(file.type));
       const url = await getDownloadURL(fileRef);
       await push(ref(db, `${P}/mediaLibrary`), { type: 'image', url, name: file.name, ts: Date.now() });
     } catch (e) {
@@ -489,7 +619,8 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     try {
       if (item.type === 'image') {
         const path = decodeURIComponent(item.url.split('/o/')[1].split('?')[0]);
-        await deleteObject(storageRef(storage, path));
+        // Uploads from before owner metadata existed can only be deleted by the owner; still drop the entry
+        await deleteObject(storageRef(storage, path)).catch(() => {});
       }
       await set(ref(db, `${P}/mediaLibrary/${item.key}`), null);
     } catch (e) { setError('Delete failed: ' + e.message); }
@@ -509,6 +640,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         await uploadBytes(fileRef, file, { contentType: file.type });
         const url = await getDownloadURL(fileRef);
         await push(ref(db, section.path), { type: 'image', url, name: file.name, ts: Date.now() });
+        bumpMassVersion(section.path);
       }
     } catch (e) {
       setError('Upload failed: ' + e.message);
@@ -522,6 +654,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       const path = decodeURIComponent(item.url.split('/o/')[1].split('?')[0]);
       await deleteObject(storageRef(storage, path));
       await set(ref(db, `${HOLY_MASS_SECTIONS[holyMassSection].path}/${item.key}`), null);
+      bumpMassVersion(HOLY_MASS_SECTIONS[holyMassSection].path);
       if (activeHolyMassKey === item.key) setActiveHolyMassKey(null);
     } catch (e) { setError('Delete failed: ' + e.message); }
   };
@@ -575,6 +708,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   const planItemPage = (it) => holyMassLibrary.find(i => i.key === it.key);
   const sendPlanItem = (it) => { const page = planItemPage(it); if (page) sendHolyMassPart(page, it.part, it.slide); };
   const startPlan = (pl) => {
+    if (frozen) return;
     set(ref(db, `${P}/massActivePlan`), pl.id).catch(planErr);
     if (pl.items[0]) sendPlanItem(pl.items[0]);
   };
@@ -597,6 +731,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     return {
       page: page ? holyMassPageLabel(page, holyMassLibrary.indexOf(page)) : 'Missing page',
       role: pt?.role || '',
+      people: pt?.roleName === 'People',
       text: (slides[it.slide] || '').split('\n')[0],
     };
   };
@@ -652,8 +787,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       ? (favPageIdxs.find(i => i > cur) ?? favPageIdxs[0])                          // wrap to the first
       : ([...favPageIdxs].reverse().find(i => i < cur) ?? favPageIdxs[favPageIdxs.length - 1]);
     const page = holyMassLibrary[targetIdx];
-    setHolyMassOpenKey(page.key);
-    sendHolyMassPart(page, 0, 0);
+    setHolyMassOpenKey(page.key);   // opens the page here only — the display keeps showing what it has
   };
   const favNav = favPageIdxs.length > 0 && (
     <div className="holy-mass-add-row holy-mass-fav-row">
@@ -666,6 +800,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   // Sends one speaker part of a page to the display (speaker + words). A page without text goes
   // as its image. seq lets the display's ◀ ▶ step through the part's screens, then parts, then pages.
   const sendHolyMassPart = async (item, partIdx, slideIdx = 0) => {
+    if (frozen) return;   // locked: slides aren't sent to the display (page navigation still works)
     setActiveHolyMassKey(item.key);
     setActiveHolyMassPart(partIdx);
     const section = HOLY_MASS_SECTIONS[holyMassSection];
@@ -676,7 +811,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     const slideText = (part.slides?.length ? part.slides : [part.text])[slideIdx] ?? part.text;
     try {
       await set(ref(db, `${P}/currentMedia`), {
-        type: 'text', text: slideText, role: part.role || null,
+        type: 'text', text: slideText, role: part.role || null, people: part.roleName === 'People',
         label: name, lang: section.lang, ts: Date.now(), seq,
       });
       setSent(name);
@@ -710,7 +845,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     ? (holyMassNumbered.length ? `${Math.min(...holyMassNumbered)}–${Math.max(...holyMassNumbered)}` : '')
     : `1–${holyMassLibrary.length}`;
   const holyMassPageLabel = (item, idx) =>
-    holyMassHasLabels ? (item.label ? `Page ${item.label}` : 'Unnumbered') : `${idx + 1} · ${item.name.replace(/\.[^.]+$/, '')}`;
+    holyMassHasLabels
+      ? (item.label ? `Page ${item.label}${item.title ? ` · ${item.title}` : ''}` : 'Unnumbered')
+      : `${idx + 1} · ${item.name.replace(/\.[^.]+$/, '')}`;
   const holyMassOpenPage = holyMassLibrary.find(i => i.key === holyMassOpenKey) || null;
   const holyMassSentName = (item) =>
     `${HOLY_MASS_SECTIONS[holyMassSection]?.label} · ${holyMassPageLabel(item, holyMassLibrary.findIndex(i => i.key === item.key))}`;
@@ -800,7 +937,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         const { blob, ext } = images[i];
         const path = `slides/${deckKey}/${String(i + 1).padStart(3, '0')}.${ext}`;
         const fileRef = storageRef(storage, path);
-        await uploadBytes(fileRef, blob, { contentType: blob.type || 'image/jpeg' });
+        await uploadBytes(fileRef, blob, ownedUpload(blob.type || 'image/jpeg'));
         uploaded.push(path);
         slides.push({ url: await getDownloadURL(fileRef), path });
       }
@@ -809,6 +946,12 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       setOpenDeckKey(deckKey);
     } catch (e) {
       await Promise.all(uploaded.map(p => deleteObject(storageRef(storage, p)).catch(() => {})));
+      // an old open page asking for a file from before the last update: load the new version
+      if (/dynamically imported module|Importing a module script failed/i.test(e.message || '')) {
+        try { if (!sessionStorage.getItem('bv_reloaded_for_update')) { sessionStorage.setItem('bv_reloaded_for_update', '1'); window.location.reload(); return; } } catch { /* private mode */ }
+        setError('The app was updated — reload the page, then try the upload again.');
+        return;
+      }
       setError('Slides upload failed: ' + e.message);
     } finally {
       setSlideProgress(null);
@@ -850,20 +993,39 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   }, [activeSlide, slidesView, openDeckKey]);
 
   // ── Book loading ──────────────────────────────────────────────────────────
+  // Book names take ~150 small requests, so they're kept on the phone until bibleVersion changes.
+  // Malayalam books carry `shortName` = the English name; that maps English name -> Malayalam key.
   const loadBooks = useCallback(async () => {
     setBooksLoading(true);
     setError(null);
     try {
-      const bookKeys = await restFetch('english', true);
-      const keys = Object.keys(bookKeys || {});
-      const names = await Promise.all(keys.map(k => restFetch(`english/${k}/name`)));
+      const versions = await restFetch('bibleVersion').catch(() => null);
+      const version = versions ? `${versions.english}-${versions.malayalam}` : null;
+      let cached = null;
+      try { cached = JSON.parse(localStorage.getItem(BOOKS_CACHE_KEY) || 'null'); } catch { /* private mode */ }
+      let names, mlKeys;
+      if (cached && version && cached.version === version) {
+        ({ names, mlKeys } = cached);
+      } else {
+        const [enBookKeys, mlBookKeys] = await Promise.all([restFetch('english', true), restFetch('malayalam', true).catch(() => ({}))]);
+        const ek = Object.keys(enBookKeys || {});
+        const mk = Object.keys(mlBookKeys || {});
+        const [en, ml] = await Promise.all([
+          Promise.all(ek.map(k => restFetch(`english/${k}/name`))),
+          Promise.all(mk.map(k => restFetch(`malayalam/${k}/shortName`).catch(() => null))),
+        ]);
+        names = {}; ek.forEach((k, i) => { names[k] = en[i]; });
+        mlKeys = {}; mk.forEach((k, i) => { if (typeof ml[i] === 'string') mlKeys[ml[i]] = k; });
+        if (version) { try { localStorage.setItem(BOOKS_CACHE_KEY, JSON.stringify({ version, names, mlKeys })); } catch { /* full or private */ } }
+      }
       const map = {};
-      const list = keys
-        .map((k, i) => ({ key: k, name: names[i], nameML: BOOK_NAME_ML[names[i]] || '' }))
+      const list = Object.entries(names)
+        .map(([key, name]) => ({ key, name, nameML: BOOK_NAME_ML[name] || '' }))
         .filter(b => typeof b.name === 'string');
       list.forEach(b => { map[b.name] = b.key; });
       setNameToKey(map);
       setAllBooks(list);
+      setNameToKeyML(mlKeys);
     } catch (e) {
       setError('Could not load books: ' + e.message);
     } finally {
@@ -872,22 +1034,6 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   }, []);
 
   useEffect(() => { loadBooks(); }, [loadBooks]);
-
-  // Malayalam Bible uses its own b1..b73 key scheme (not aligned with English keys),
-  // but each book node carries a `shortName` set to the English book name — use that
-  // to map English name -> Malayalam book key for fetching Malayalam verse text.
-  useEffect(() => {
-    (async () => {
-      try {
-        const bookKeys = await restFetch('malayalam', true);
-        const keys = Object.keys(bookKeys || {});
-        const shortNames = await Promise.all(keys.map(k => restFetch(`malayalam/${k}/shortName`)));
-        const map = {};
-        keys.forEach((k, i) => { if (typeof shortNames[i] === 'string') map[shortNames[i]] = k; });
-        setNameToKeyML(map);
-      } catch { /* Malayalam text fetch will just fail per-verse if this doesn't load */ }
-    })();
-  }, []);
 
   // ── AI Search ─────────────────────────────────────────────────────────────
   // Calls searchVerses directly — same Cloud Function the web app uses.
@@ -925,6 +1071,14 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             text = typeof val === 'string' ? val : '';
           } catch { /* offline */ }
         }
+        let textEN = '';
+        const keyEN = nameToKey[r.book];
+        if (keyEN) {
+          try {
+            const val = await restFetch(`english/${keyEN}/chapters/ch${r.chapter}/${r.verse}`);
+            textEN = typeof val === 'string' ? val : '';
+          } catch { /* offline */ }
+        }
         const mlBook = BOOK_NAME_ML[r.book] || '';
         const ref = mlBook
           ? `${r.book} ${r.chapter}:${r.verse} / ${mlBook} ${r.chapter}:${r.verse}`
@@ -933,7 +1087,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
           type: 'bible',
           ref,
           book: r.book, chapter: Number(r.chapter), verse: Number(r.verse),
-          text, reason: r.reason,
+          text, textEN, reason: r.reason,
         };
       }));
 
@@ -1081,14 +1235,6 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     });
   }, [songSlidesLoading, selectedSong, activeSongSlide]);
 
-  // Load manifest eagerly so the locate button works immediately on reopen
-  useEffect(() => {
-    fetch('/songs-manifest.json', { cache: 'no-cache' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setSongsManifest(data); })
-      .catch(() => {});
-  }, []);
-
   // ── Songs ─────────────────────────────────────────────────────────────────
   const openSongsView = async () => {
     setSongsView(true);
@@ -1097,10 +1243,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     if (!songsManifest) {
       setSongsManifestLoading(true);
       try {
-        const res = await fetch('/songs-manifest.json', { cache: 'no-cache' });
-        if (res.ok) setSongsManifest(await res.json());
-      } catch { /* offline */ }
-      finally { setSongsManifestLoading(false); }
+        const data = await loadSongsManifest(setSongsManifest);
+        if (data) setSongsManifest(data);
+      } finally { setSongsManifestLoading(false); }
     }
   };
 
@@ -1129,14 +1274,15 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
   const selectSong = async (entry) => {
     setSongSlidesLoading(true);
+    set(ref(db, `${RECENT_SONGS_PATH}/${entry.filename}`), { title: entry.title, ts: Date.now() }).catch(() => {});
     try {
       // EN previews songs in Manglish (same slide layout), falling back to Malayalam
-      let bytes;
+      let text;
       if (language === 'EN') {
-        try { bytes = await getBytes(storageRef(storage, `lyrics-text/${entry.filename}.manglish.txt`)); } catch { /* no Manglish version */ }
+        try { text = await loadLyrics(`lyrics-text/${entry.filename}.manglish.txt`); } catch { /* no Manglish version */ }
       }
-      if (!bytes) bytes = await getBytes(storageRef(storage, `lyrics-text/${entry.filename}.txt`));
-      const { title, slides } = parseLyrics(new TextDecoder('utf-8').decode(bytes));
+      if (text == null) text = await loadLyrics(`lyrics-text/${entry.filename}.txt`);
+      const { title, slides } = parseLyrics(text);
       setSelectedSong({ filename: entry.filename, title: title || entry.title, slides });
     } catch {
       setError('Could not load song: ' + entry.title);
@@ -1186,12 +1332,14 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       if (holyMassSection) { setHolyMassSection(null); return; }
       setHolyMassView(false); return;
     }
+    if (voiceView) { setVoiceView(false); return; }
     if (slidesView) {
       if (deckDraft && !slideProgress) { setDeckDraft(null); return; }
       if (openDeckKey) { setOpenDeckKey(null); return; }
       setSlidesView(false); return;
     }
     if (songsView) {
+      if (addSongView) { setAddSongView(false); return; }
       if (selectedSong) { setSelectedSong(null); return; }
       setSongsView(false); setSongQuery(''); return;
     }
@@ -1209,6 +1357,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     setMediaView(false);
     setHolyMassView(false); setHolyMassSection(null); setHolyMassOpenKey(null); setPlanViewId(null); setPlanEditId(null);
     setSlidesView(false); setOpenDeckKey(null); setDeckDraft(null);
+    setVoiceView(false);
     setSongsView(false); setSelectedSong(null); setSongQuery('');
     setView('testament'); setTestament(null); setSelectedBook(null);
     setSelectedBookKey(null); setSelectedChapter(null);
@@ -1226,12 +1375,10 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       // Load manifest on-demand if not yet available
       let manifest = songsManifest;
       if (!manifest) {
-        try {
-          const res = await fetch('/songs-manifest.json', { cache: 'no-cache' });
-          if (res.ok) { manifest = await res.json(); setSongsManifest(manifest); }
-        } catch { /* offline */ }
+        manifest = await loadSongsManifest(setSongsManifest);
+        if (manifest) setSongsManifest(manifest);
       }
-      const entry = manifest?.find(s => s.filename === activeSongSlide.filename);
+      const entry = withAddedSongs(manifest, addedSongs)?.find(s => s.filename === activeSongSlide.filename);
       if (!entry) return;
       setSongsView(true);
       setSelectedSong(null);
@@ -1273,9 +1420,11 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     holyMassView && planViewId && !holyMassOpenPage && planById(planViewId) ? `Plan · ${planById(planViewId).name}` :
     holyMassView && holyMassOpenPage ? `${HOLY_MASS_SECTIONS[holyMassSection].label} · ${holyMassPageLabel(holyMassOpenPage, holyMassLibrary.indexOf(holyMassOpenPage))}` :
     holyMassView && holyMassSection ? HOLY_MASS_SECTIONS[holyMassSection].label :
-    holyMassView              ? 'Holy Mass' :
+    holyMassView              ? PAGE_GROUPS[massGroup] :
     slidesView && openDeck    ? openDeck.name :
+    voiceView                 ? 'Voice Search' :
     slidesView                ? 'Slides' :
+    songsView && addSongView  ? 'Add song' :
     songsView && selectedSong ? selectedSong.title :
     songsView                 ? 'Songs' :
     searchView                ? 'AI Search' :
@@ -1292,7 +1441,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     <div className="app">
       <header className="app-header">
         <div className="header-left">
-          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView) && (
+          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView || voiceView) && (
             <button className="icon-btn" onClick={goBack} aria-label="Back" disabled={frozen}>
               <ChevronLeft />
             </button>
@@ -1300,7 +1449,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
           <span className="header-title">{headerTitle}</span>
         </div>
         <div className="header-right">
-          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView) && (
+          {(view !== 'testament' || searchView || songsView || mediaView || settingsView || holyMassView || slidesView || voiceView) && (
             <button className="icon-btn" onClick={goHome} aria-label="Home" disabled={frozen}>
               <HomeIcon />
             </button>
@@ -1309,7 +1458,8 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
       </header>
 
       {/* Floating settings bar */}
-      <div className="settings-bar">
+      {/* Hidden in Holy Mass: pages, slides and font size are all in the maroon Mass bar there */}
+      {!holyMassView && <div className="settings-bar">
         <button className="settings-btn icon-only" onClick={() => slidesView && openDeck ? navigateSlides('prev') : sendNav('prev')} aria-label="Previous" disabled={frozen}>
           <ChevronLeft small />
         </button>
@@ -1333,14 +1483,17 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         >
           <FullscreenIcon />
         </button>
-        {isOwner && voice.supported && (
-          <button className={`settings-btn icon-only voice-btn${voice.isListening ? ' voice-on' : ''}`}
-            onClick={voice.toggle} aria-label={voice.isListening ? 'Stop voice search' : 'Voice search'} disabled={frozen}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><line x1="12" y1="17" x2="12" y2="22" />
-            </svg>
-          </button>
-        )}
+        <button
+          className="settings-btn icon-only clear-screen-btn"
+          onClick={clearMediaScreen}
+          aria-label="Clear the display"
+          title="Clear the display"
+          disabled={frozen}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4M9 8l6 5M15 8l-6 5" />
+          </svg>
+        </button>
         <div className="settings-row-break" />
         <button className={`settings-btn lang-btn${language === 'ML' ? ' active' : ''}`} onClick={toggleLanguage} disabled={frozen}>
           {language}
@@ -1353,9 +1506,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
           A<span className="font-sup">+</span>
         </button>
         <div className="settings-divider" />
-        <button className={`settings-btn${themeMenu ? ' active' : ''}`} onClick={() => setThemeMenu(m => !m)} aria-label="Choose theme" disabled={frozen}>
+        {can.themes && <button className={`settings-btn${themeMenu ? ' active' : ''}`} onClick={() => setThemeMenu(m => !m)} aria-label="Choose theme" disabled={frozen}>
           <span className="theme-dot" style={{ background: getTheme(theme).bg }} />
-        </button>
+        </button>}
         <div className="settings-divider" />
         <button
           className={`settings-btn freeze-btn${frozen ? ' freeze-btn-on' : ''}`}
@@ -1365,10 +1518,10 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         >
           <LockIcon locked={frozen} />
         </button>
-      </div>
+      </div>}
 
-      {isOwner && voice.isListening && (
-        <div className="voice-strip">
+      {canVoice && voice.isListening && !voiceView && (
+        <div className="voice-strip" role="button" onClick={() => { goHome(); setVoiceView(true); }}>
           <span className="voice-dot" /> Listening ({language === 'EN' ? 'English' : 'Malayalam'}) — say a verse, e.g. "John 3 16"
           {voiceHeard && <span className="voice-heard">Heard: {voiceHeard}</span>}
         </div>
@@ -1429,22 +1582,36 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
               <button type="submit" className="mass-bar-btn mass-bar-go" disabled={!holyMassPageInput}>Go</button>
             </form>
             <div className="mass-bar-group">
-              <button className="mass-bar-btn mass-bar-clear" onClick={clearMediaScreen} title="Clear the display">⬜ Clear</button>
+              <button className="mass-bar-btn mass-bar-clear" disabled={frozen} onClick={clearMediaScreen} title="Clear the display">⬜ Clear</button>
+            </div>
+            <div className="mass-bar-group">
+              <button className="mass-bar-btn mass-bar-font" onClick={() => sendFontSize(-1)} aria-label="Decrease font" disabled={frozen}>A<span className="font-sub">−</span></button>
+              <button className="mass-bar-btn mass-bar-font" onClick={() => sendFontSize(1)} aria-label="Increase font" disabled={frozen}>A<span className="font-sup">+</span></button>
             </div>
             {runningPlan && !editingPlan && (
               <div className="mass-bar-group mass-bar-plan">
                 <button className="mass-bar-btn mass-bar-plan-name" onClick={() => { setHolyMassOpenKey(null); setPlanViewId(runningPlan.id); }} title="Open the running plan">
                   ▶ {runningPlan.name}
                 </button>
-                <button className="mass-bar-btn" onClick={stopPlan} title="Stop the plan">■</button>
+                <button className="mass-bar-btn" disabled={frozen} onClick={stopPlan} title="Stop the plan">■</button>
               </div>
             )}
+            <div className="mass-bar-group">
+              <button
+                className={`mass-bar-btn mass-bar-lock${frozen ? ' mass-bar-lock-on' : ''}`}
+                onClick={() => setFrozen(f => !f)}
+                aria-label={frozen ? 'Unfreeze' : 'Freeze'}
+                title={frozen ? 'Unfreeze controls' : 'Freeze controls'}
+              >
+                <LockIcon locked={frozen} />
+              </button>
+            </div>
           </div>
         );
       })()}
 
-      <main className="app-main">
-        {frozen && (
+      <main className={`app-main${frozen && holyMassView ? ' mass-locked' : ''}`}>
+        {frozen && !holyMassView && (
           <div className="freeze-overlay">
             <LockIcon locked size={28} />
             <span className="freeze-overlay-label">Frozen</span>
@@ -1496,7 +1663,8 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                       <span className={`result-ref${r.type === 'ccc' ? ' result-ref-ccc' : ''}`}>
                         {r.ref}
                       </span>
-                      {r.text && <span className="result-text">{r.text}</span>}
+                      {r.text && <span className="result-text result-text-full">{r.text}</span>}
+                      {r.textEN && <span className="result-text result-text-full result-text-en">{r.textEN}</span>}
                       {r.reason && <span className="result-reason">{r.reason}</span>}
                     </button>
                   </li>
@@ -1507,8 +1675,16 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── Songs view ── */}
-        {songsView && !selectedSong && (
+        {songsView && addSongView && can.addSong && (
+          <AddSong
+            onCancel={() => setAddSongView(false)}
+            onSaved={(entry) => { setAddSongView(false); setSongQuery(''); selectSong(entry); }}
+          />
+        )}
+
+        {songsView && !selectedSong && !addSongView && (
           <div className="search-view">
+            {can.addSong && <button className="mass-plan-btn add-song-open" onClick={() => setAddSongView(true)}>＋ Add song</button>}
             <div className="search-input-row">
               <input
                 className="search-input song-search-input"
@@ -1516,23 +1692,45 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                 placeholder="Song title (English) or Manglish lyrics…"
                 value={songQuery}
                 onChange={e => { setSongQuery(e.target.value); setSongAiResults(null); }}
-                onKeyDown={e => e.key === 'Enter' && songQuery.trim() && songAiSearch()}
+                onKeyDown={e => e.key === 'Enter' && songQuery.trim() && can.aiSearch && songAiSearch()}
                 autoFocus
               />
-              <button
+              {can.aiSearch && <button
                 className="search-go-btn song-ai-go-btn"
                 onClick={songAiSearch}
                 disabled={songAiLoading || !songQuery.trim()}
                 title="AI: search by Manglish lyrics"
               >
                 {songAiLoading ? <span className="search-spinner" /> : <MusicAiIcon />}
-              </button>
+              </button>}
             </div>
 
             {songsManifestLoading && <p className="search-status">Loading songs…</p>}
 
-            {!songsManifestLoading && songsManifest && !songQuery.trim() && (
+            {!songsManifestLoading && songsManifest && !songQuery.trim() && !recentSongs.length && (
               <p className="search-status">Type a title, or Manglish lyrics and tap ♪ AI to search.</p>
+            )}
+
+            {/* Recent songs, while the search box is empty */}
+            {!songQuery.trim() && songAiResults === null && recentSongs.length > 0 && (
+              <>
+                <p className="section-heading" style={{ paddingTop: 4 }}>Recent songs</p>
+                <ul className="search-results">
+                  {recentSongs.map(r => {
+                    const s = songsManifest?.find(m => m.filename === r.filename) || r;
+                    return (
+                      <li key={r.filename}>
+                        <button className="search-result-btn song-result-btn" onClick={() => selectSong(s)}>
+                          <span className="result-ref song-result-ref">{s.title}</span>
+                          <span className="result-text">
+                            {s.voices ? `${s.voices.length} slides · ` : ''}{timeAgo(r.ts)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
 
             {/* AI results */}
@@ -1603,7 +1801,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                             {prevSame && <span className="slide-repeat-badge slide-repeat-2">↩</span>}
                           </span>
                           <span className="result-text song-slide-preview">
-                            {prevSame ? '(same as above)' : `${slide.text.slice(0, 80)}${slide.text.length > 80 ? '…' : ''}`}
+                            {prevSame ? '(same as above)' : slide.text.replace(/\n\s*\n/g, '\n')}
                           </span>
                         </button>
                       </li>
@@ -1626,8 +1824,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
 
             {isOwner && <AllowedUsers currentSession={P} onJoin={onSwitchSession} />}
 
-            {isOwner && <EventFrameSettings P={P} />}
+            {can.eventFrame && <EventFrameSettings P={P} />}
 
+            {can.media && <>
             <p className="section-heading">Background Image</p>
 
             {activeBg ? (
@@ -1676,6 +1875,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             {mediaLibrary.filter(i => i.type === 'image').length === 0 && (
               <p className="search-status">Upload images in Media to use as backgrounds</p>
             )}
+            </>}
           </div>
         )}
 
@@ -1754,7 +1954,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                 <div key={item.key} className={`media-list-item${isActiveBg ? ' media-list-item-bg' : ''}`}>
                   <button className="media-list-thumb-btn" onClick={() => sendMedia(item)}>
                     {item.type === 'text' ? (
-                      <div className="media-list-text-preview" dangerouslySetInnerHTML={{ __html: item.html || item.text }} />
+                      <div className="media-list-text-preview" dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.html || item.text) }} />
                     ) : (
                       <img src={item.url} alt={item.name} className="media-list-thumb" />
                     )}
@@ -1790,13 +1990,13 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         {/* ── Holy Mass view ── */}
         {holyMassView && !holyMassSection && (
           <div className="testament-grid">
-            {Object.entries(HOLY_MASS_SECTIONS).map(([key, { label }]) => {
+            {Object.entries(HOLY_MASS_SECTIONS).filter(([, s]) => s.group === massGroup).map(([key, { label }]) => {
               const count = holyMassLibraries[key].length;
               return (
                 <button key={key} className="testament-btn holy-mass-testament-btn" onClick={() => setHolyMassSection(key)}>
                   <CrossIcon />
                   <span className="testament-label">{label}</span>
-                  <span className="testament-count">{count > 0 ? `${count} page${count !== 1 ? 's' : ''}` : 'No pages yet'}</span>
+                  <span className="testament-count">{!holyMassLoaded[key] ? 'Loading…' : count > 0 ? `${count} page${count !== 1 ? 's' : ''}` : 'No pages yet'}</span>
                 </button>
               );
             })}
@@ -1825,7 +2025,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             </div>
 
 
-            {holyMassLibrary.length === 0 && !holyMassUploading && (
+            {!holyMassLoaded[holyMassSection] && <CenterSpinner />}
+
+            {holyMassLoaded[holyMassSection] && holyMassLibrary.length === 0 && !holyMassUploading && (
               <p className="section-heading" style={{ textAlign: 'center', marginTop: 32 }}>
                 No images yet — add images above
               </p>
@@ -1838,7 +2040,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                 return (
                   <div key={item.key} className={`holy-mass-card${isActive ? ' holy-mass-active' : ''}`}>
                     <button className="media-list-thumb-btn" onClick={() => setHolyMassOpenKey(item.key)}>
-                      <img src={item.url} alt={item.name} className="holy-mass-thumb" />
+                      <img src={item.thumb || item.url} alt={item.name} className="holy-mass-thumb" loading="lazy" decoding="async" />
                       {isSent && <div className="media-sent-overlay">✓ Sent</div>}
                     </button>
                     <div className="holy-mass-card-footer">
@@ -1878,7 +2080,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                   const isActive = activeHolyMassKey === it.key && activeHolyMassPart === it.part && activeHolyMassSlide === it.slide;
                   return (
                     <div key={`${it.key}-${it.part}-${it.slide}`} role="button" tabIndex={0}
-                      className={`holy-mass-part-btn${isActive ? ' holy-mass-part-active' : ''}`}
+                      className={`holy-mass-part-btn${info.people ? ' holy-mass-part-people' : ''}${isActive ? ' holy-mass-part-active' : ''}`}
                       onClick={() => sendPlanItem(it)}
                       onKeyDown={e => { if (e.key === 'Enter') sendPlanItem(it); }}
                     >
@@ -1927,7 +2129,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                         key={`${i}-${j}`}
                         role="button"
                         tabIndex={0}
-                        className={`holy-mass-part-btn${isActive ? ' holy-mass-part-active' : ''}${j > 0 ? ' holy-mass-part-cont' : ''}`}
+                        className={`holy-mass-part-btn${pt.roleName === 'People' ? ' holy-mass-part-people' : ''}${isActive ? ' holy-mass-part-active' : ''}${j > 0 ? ' holy-mass-part-cont' : ''}`}
                         onClick={() => sendHolyMassPart(page, i, j)}
                         onKeyDown={e => { if (e.key === 'Enter') sendHolyMassPart(page, i, j); }}
                       >
@@ -1957,6 +2159,62 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             </div>
           );
         })()}
+
+        {/* ── Voice Search (owner only) ── */}
+        {voiceView && canVoice && (
+          <div className="search-view voice-view">
+            {!voice.supported ? (
+              <p className="section-heading" style={{ textAlign: 'center', marginTop: 24 }}>
+                Voice search needs Chrome (Android or desktop) or Edge. It isn't available in this browser.
+              </p>
+            ) : (
+              <>
+                <div className="voice-lang">
+                  {['EN', 'ML'].map(l => (
+                    <button key={l} className={`voice-lang-btn${language === l ? ' on' : ''}`}
+                      onClick={() => { if (language !== l) toggleLanguage(); }} disabled={voice.isListening}>
+                      {l === 'EN' ? 'English' : 'Malayalam'}
+                    </button>
+                  ))}
+                </div>
+                <button className={`voice-big-btn${voice.isListening ? ' on' : ''}`} onClick={voice.toggle} disabled={frozen}
+                  aria-label={voice.isListening ? 'Stop listening' : 'Start listening'}>
+                  <VoiceMicIcon size={56} />
+                  <span>{voice.isListening ? 'Listening… tap to stop' : 'Tap to start'}</span>
+                </button>
+                <p className="voice-hint">Say a Bible reference, e.g. “John 3 16” or “വെളിപാട് മൂന്നാം അധ്യായം നാലാം വാക്യം”. Matching verses appear below — tap one to show it.</p>
+                {voice.isListening && (
+                  <div className="voice-live">
+                    {(voice.transcript.match(/^Interim: (.*)$/m) || [])[1] || voiceHeard || 'Waiting for speech…'}
+                  </div>
+                )}
+                {voiceBusy > 0 && <p className="voice-hint">Finding the verse…</p>}
+                {voiceMatches.length > 0 && (
+                  <>
+                    <div className="voice-matches-head">
+                      <p className="section-heading" style={{ margin: 0 }}>Matched verses</p>
+                      <button className="access-signout-btn" onClick={() => { setVoiceMatches([]); setVoiceSentId(null); }}>Clear</button>
+                    </div>
+                    <div className="voice-log">
+                      {voiceMatches.map(m => {
+                        const ml = language === 'ML';
+                        const label = `${ml && m.mlName ? m.mlName : m.book} ${m.chapter}:${m.verse}`;
+                        const text = (ml ? m.ml || m.en : m.en || m.ml) || '';
+                        return (
+                          <button key={m.id} className={`voice-match${voiceSentId === m.id ? ' sent' : ''}`} onClick={() => sendVoiceMatch(m)}>
+                            <span className="voice-match-ref">{label}{voiceSentId === m.id ? ' · on display' : ''}</span>
+                            <span className={`voice-match-text${ml ? ' ml' : ''}`}>{String(text)}</span>
+                            <span className="voice-match-heard">Heard: {m.heard}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* ── Slides view ── */}
         {slidesView && !openDeck && (
@@ -2103,10 +2361,11 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── Home picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'testament' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'testament' && (
           booksLoading
             ? <CenterSpinner />
             : <div className="testament-grid">
+                {can.bible && <>
                 <button className="testament-btn" onClick={() => selectTestament('OT')}>
                   <span className="testament-label">Old Testament</span>
                   <span className="testament-count">{getBooksForTestament('OT').length} books</span>
@@ -2115,63 +2374,76 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                   <span className="testament-label">New Testament</span>
                   <span className="testament-count">{getBooksForTestament('NT').length} books</span>
                 </button>
-                <button className="testament-btn ccc-testament-btn" onClick={() => setView('ccc-ranges')}>
+                </>}
+                {can.ccc && <button className="testament-btn ccc-testament-btn" onClick={() => setView('ccc-ranges')}>
                   <span className="testament-label" style={{ fontFamily: 'serif' }}>CCC</span>
                   <span className="testament-count">2865 paragraphs</span>
-                </button>
-                <button className="testament-btn recent-testament-btn" onClick={() => setView('recent')}>
+                </button>}
+                {(can.bible || can.ccc) && <button className="testament-btn recent-testament-btn" onClick={() => setView('recent')}>
                   <ClockIcon />
                   <span className="testament-label">Recent</span>
                   <span className="testament-count">
                     {recentSent.length > 0 ? `${recentSent.length} sent this session` : 'Nothing sent yet'}
                   </span>
-                </button>
-                <button
+                </button>}
+                {can.aiSearch && <button
                   className="testament-btn search-testament-btn"
                   onClick={() => { setSearchView(true); setSearchResults(null); setSearchQuery(''); }}
                 >
                   <SearchSparkleIcon />
                   <span className="testament-label">AI Search</span>
                   <span className="testament-count">Find by meaning</span>
-                </button>
-                <button className="testament-btn songs-testament-btn" onClick={openSongsView}>
+                </button>}
+                {can.songs && <button className="testament-btn songs-testament-btn" onClick={openSongsView}>
                   <MusicNoteIcon />
                   <span className="testament-label">Songs</span>
                   <span className="testament-count">{songsManifest ? `${songsManifest.length} Malayalam songs` : 'Malayalam songs'}</span>
-                </button>
-                <button className="testament-btn media-testament-btn" onClick={() => setMediaView(true)}>
+                </button>}
+                {can.media && <button className="testament-btn media-testament-btn" onClick={() => setMediaView(true)}>
                   <MediaIcon />
                   <span className="testament-label">Media</span>
                   <span className="testament-count">
                     {mediaLibrary.length > 0 ? `${mediaLibrary.length} item${mediaLibrary.length !== 1 ? 's' : ''}` : 'Posters & images'}
                   </span>
-                </button>
-                <button className="testament-btn holy-mass-testament-btn" onClick={() => setHolyMassView(true)}>
+                </button>}
+                {can.holyMass && <button className="testament-btn holy-mass-testament-btn" onClick={() => { setMassGroup('mass'); setHolyMassSection(null); setHolyMassView(true); }}>
                   <CrossIcon />
                   <span className="testament-label">Holy Mass</span>
                   <span className="testament-count">
                     Liturgical images
                   </span>
-                </button>
-                <button className="testament-btn slides-testament-btn" onClick={() => setSlidesView(true)}>
+                </button>}
+                {can.prayers && <button className="testament-btn holy-mass-testament-btn" onClick={() => { setMassGroup('prayers'); setHolyMassSection(null); setHolyMassView(true); }}>
+                  <CrossIcon />
+                  <span className="testament-label">Prayers</span>
+                  <span className="testament-count">Novenas & prayers</span>
+                </button>}
+                {can.slides && <button className="testament-btn slides-testament-btn" onClick={() => setSlidesView(true)}>
                   <SlidesIcon />
                   <span className="testament-label">Slides</span>
                   <span className="testament-count">
                     {slideDecks.length > 0 ? `${slideDecks.length} deck${slideDecks.length !== 1 ? 's' : ''}` : 'PowerPoint & PDF'}
                   </span>
-                </button>
+                </button>}
+                {canVoice && (
+                  <button className="testament-btn voice-testament-btn" onClick={() => setVoiceView(true)}>
+                    <VoiceMicIcon />
+                    <span className="testament-label">Voice Search</span>
+                    <span className="testament-count">{voice.isListening ? '● Listening' : 'Say a verse'}</span>
+                  </button>
+                )}
                 <button className="testament-btn settings-testament-btn" onClick={() => setSettingsView(true)}>
                   <SettingsIcon />
                   <span className="testament-label">Settings</span>
                   <span className="testament-count">
-                    {activeBg ? `BG: ${activeBg.name.split('.')[0]}` : 'Background & display'}
+                    {can.media && activeBg ? `BG: ${activeBg.name.split('.')[0]}` : 'Account & display'}
                   </span>
                 </button>
               </div>
         )}
 
         {/* ── Recent sent items ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'recent' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'recent' && (
           recentSent.length === 0
             ? <p className="search-status">Nothing sent yet this session.</p>
             : <ul className="search-results">
@@ -2191,7 +2463,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── CCC range picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'ccc-ranges' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'ccc-ranges' && (
           <div className="num-grid">
             {cccRanges.map(r => (
               <button
@@ -2206,7 +2478,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── CCC paragraph picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'ccc-paragraphs' && selectedCccRange && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'ccc-paragraphs' && selectedCccRange && (
           <div className="num-grid">
             {Array.from(
               { length: selectedCccRange.end - selectedCccRange.start + 1 },
@@ -2220,7 +2492,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── Book list ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'books' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'books' && (
           <div className="book-list-wrap">
             <input
               className="book-search-input"
@@ -2252,7 +2524,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── Chapter picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'chapters' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'chapters' && (
           chaptersLoading
             ? <CenterSpinner />
             : <>
@@ -2266,7 +2538,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         )}
 
         {/* ── Verse picker ── */}
-        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && view === 'verses' && (
+        {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'verses' && (
           versesLoading
             ? <CenterSpinner />
             : <>
@@ -2292,7 +2564,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   );
 }
 
-// ── Event frame editor (owner only): drag text and logos on a 16:9 preview of the display ──
+// ── Event frame editor (each user edits the frame of their own session): drag text and logos on a 16:9 preview ──
 const newItemId = () => `i${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
 function EventFrameSettings({ P }) {
@@ -2310,10 +2582,18 @@ function EventFrameSettings({ P }) {
     if (!dragRef.current) setItems(frameItems(v));
   }), [P]);
 
+  // The owner's own frame is copied, change by change, to the sessions listed in config/eventFrameShare
+  const [mirrors, setMirrors] = useState([]);
+  useEffect(() => (P === 'remote'
+    ? onValue(ref(db, 'config/eventFrameShare'), snap => setMirrors(Object.keys(snap.val() || {})), () => setMirrors([]))
+    : setMirrors([])), [P]);
+
   const enabled = !!frame?.enabled;
   const border = frame?.border !== false;
-  const save = (patch) => update(ref(db, `${P}/eventFrame`), patch).catch(e => setMsg('Could not save: ' + e.message));
-  const saveItems = (next) => { setItems(next); save({ items: next }); };
+  const save = (patch) => Promise.all([P, ...mirrors].map(s => update(ref(db, `${s}/eventFrame`), patch)))
+    .catch(e => setMsg('Could not save: ' + e.message));
+  // Also drop the old text-only frame fields, so clearing every item can't bring that frame back
+  const saveItems = (next) => { setItems(next); save({ items: next, title: null, subtitle: null, verse: null, verseRef: null, footer: null }); };
   const setItem = (id, patch) => saveItems({ ...items, [id]: { ...items[id], ...patch } });
 
   const onItemPointerDown = (id, e) => {
@@ -2352,7 +2632,7 @@ function EventFrameSettings({ P }) {
       const ext = (file.name.split('.').pop() || 'png').toLowerCase();
       const path = `event-frame/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const r = storageRef(storage, path);
-      await uploadBytes(r, file, { contentType: file.type });
+      await uploadBytes(r, file, ownedUpload(file.type));
       const url = await getDownloadURL(r);
       const id = newItemId();
       saveItems({ ...items, [id]: { type: 'image', url, path, x: 8, y: 50, size: 10 } });
@@ -2368,9 +2648,15 @@ function EventFrameSettings({ P }) {
     setSel(null);
     if (it?.path) deleteObject(storageRef(storage, it.path)).catch(() => {});
   };
-  const resetLayout = () => {
-    if (!window.confirm('Reset the frame to the Encounter layout? Your text and logo positions will be replaced.')) return;
+  const useTemplate = () => {
+    if (!window.confirm('Replace your frame with the Encounter template? Your text and logos will be replaced.')) return;
     saveItems(defaultFrameItems());
+    setSel(null);
+  };
+  const clearAll = () => {
+    if (!window.confirm('Remove all text and logos from your frame?')) return;
+    Object.values(items).forEach(x => { if (x.path) deleteObject(storageRef(storage, x.path)).catch(() => {}); });
+    saveItems({});
     setSel(null);
   };
 
@@ -2378,6 +2664,9 @@ function EventFrameSettings({ P }) {
   return (
     <>
       <p className="section-heading">Event frame</p>
+      {mirrors.length > 0 && (
+        <p className="access-hint">Changes here are also applied to: {mirrors.map(s => s.replace(/^u_/, '').replace(/,/g, '.')).join(', ')}</p>
+      )}
       <div className="event-frame-box">
         <div className="access-account-row">
           <span className="access-email">Show the event frame on the display</span>
@@ -2394,7 +2683,8 @@ function EventFrameSettings({ P }) {
             {uploading ? 'Uploading…' : '＋ Logo'}
           </label>
           <button className={`ef-btn${border ? ' ef-on' : ''}`} onClick={() => save({ border: !border })}>Border {border ? 'on' : 'off'}</button>
-          <button className="ef-btn" onClick={resetLayout}>Reset</button>
+          <button className="ef-btn" onClick={clearAll}>Clear all</button>
+          <button className="ef-btn" onClick={useTemplate}>Encounter template</button>
         </div>
 
         <div ref={boxRef} className="ef-preview" onPointerDown={e => { if (e.target === e.currentTarget) setSel(null); }}>
@@ -2456,6 +2746,7 @@ function AllowedUsers({ currentSession, onJoin }) {
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState('');
   const [msg, setMsg] = useState('');
+  const [openFeatures, setOpenFeatures] = useState(null);   // emailKey whose feature switches are shown
 
   useEffect(() => onValue(ref(db, 'config/access'), snap => {
     setUsers(Object.entries(snap.val() || {}).map(([key, v]) => ({ key, ...v })).sort((a, b) => (a.email || '').localeCompare(b.email || '')));
@@ -2486,12 +2777,17 @@ function AllowedUsers({ currentSession, onJoin }) {
           <JoinButton session={sessionForEmail(OWNER_EMAIL)} currentSession={currentSession} onJoin={onJoin} />
         </div>
         {users.map(u => (
-          <div key={u.key} className="access-user">
-            <span className="access-email">{u.email}</span>
-            <span className="access-actions">
-              <JoinButton session={sessionForEmail(u.email)} currentSession={currentSession} onJoin={onJoin} />
-              <button className="media-delete-btn" onClick={() => remove(u)} title="Remove access">✕</button>
-            </span>
+          <div key={u.key} className="access-user-block">
+            <div className="access-user">
+              <span className="access-email">{u.email}</span>
+              <span className="access-actions">
+                <button className={`access-join-btn${openFeatures === u.key ? ' access-features-open' : ''}`}
+                  onClick={() => setOpenFeatures(k => (k === u.key ? null : u.key))}>Features</button>
+                <JoinButton session={sessionForEmail(u.email)} currentSession={currentSession} onJoin={onJoin} />
+                <button className="media-delete-btn" onClick={() => remove(u)} title="Remove access">✕</button>
+              </span>
+            </div>
+            {openFeatures === u.key && <UserFeatures user={u} />}
           </div>
         ))}
       </div>
@@ -2507,6 +2803,30 @@ function AllowedUsers({ currentSession, onJoin }) {
       </form>
       <p className="access-hint">{msg || 'Each person signs in with Google on their own display and remote and gets their own private screen. Join controls that person\'s screen from this remote.'}</p>
     </>
+  );
+}
+
+// The owner switches features on/off for one person: config/access/<emailKey>/features/<id>
+function UserFeatures({ user }) {
+  const on = featureAccess(false, user.features);
+  const toggle = (id, value) => set(ref(db, `config/access/${user.key}/features/${id}`), value).catch(() => {});
+  return (
+    <div className="access-features">
+      {FEATURES.map(f => (
+        <label key={f.id} className="access-feature">
+          <input type="checkbox" checked={!!on[f.id]} onChange={e => toggle(f.id, e.target.checked)} />
+          <span>
+            <span className="access-feature-name">{f.label}</span>
+            {f.hint && <span className="access-feature-hint">{f.hint}</span>}
+          </span>
+        </label>
+      ))}
+      {user.features && (
+        <button className="mass-plan-btn" onClick={() => set(ref(db, `config/access/${user.key}/features`), null).catch(() => {})}>
+          Reset to defaults
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -2674,6 +2994,14 @@ function CrossIcon() {
     </svg>
   );
 }
+function VoiceMicIcon({ size = 28 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><line x1="12" y1="17" x2="12" y2="22" /><line x1="8" y1="22" x2="16" y2="22" />
+    </svg>
+  );
+}
+
 function SunIcon() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>;
 }

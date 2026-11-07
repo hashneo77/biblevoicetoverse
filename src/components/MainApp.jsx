@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { ref as dbRef, get, set, push, onValue } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
-import { ref as storageRef, uploadString, getBytes } from 'firebase/storage'
 import { db, functions, storage } from '../firebase'
 import { getCachedBible, putCachedBible } from '../bibleCache'
+import { loadMassBook, massVersionPath, loadSongsManifest, loadLyrics, saveLyricsCopy } from '../offlineCache'
+import { withAddedSongs } from '../utils/songSearch'
 import { parseReference } from '../utils/parseReference'
 import { tfidfSearch } from '../utils/tfidf'
 import { parseLyrics, serializeLyrics } from '../utils/parseLyrics'
@@ -105,7 +106,7 @@ function lookupVerse(store, book, ch, v) {
   return { text: data[key]?.[String(ch)]?.[String(v)] ?? null, resolvedBook: key }
 }
 
-export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefix = 'remote', userEmail, onSignOut, sessions, onSwitchSession }) {
+export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefix = 'remote', userEmail, onSignOut, sessions, onSwitchSession, features = {} }) {
   const P = sessionPrefix
   const RECENT_ITEMS_PATH = `${P}/recentItems`
 
@@ -129,7 +130,9 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   const [aiResults, setAiResults] = useState(null) // null=hidden, array=visible
   const [songAiLoading, setSongAiLoading] = useState(false)
   const [recentVerses, setRecentVerses] = useState([])
-  const [songsManifest, setSongsManifest] = useState(null)
+  const [publishedSongs, setSongsManifest] = useState(null)
+  const [addedSongs, setAddedSongs] = useState({})   // songs added from the remote (songsAdded)
+  const songsManifest = useMemo(() => withAddedSongs(publishedSongs, addedSongs), [publishedSongs, addedSongs])
   const [songState, setSongState] = useState(null) // null = Bible/CCC mode; { filename, title, slides, slideIdx }
   const songCacheRef = useRef({})
   // { kind: 'holyMass', path, key } | { kind: 'slides', deckKey, key } for the image on screen, so ◀ ▶ can step through it
@@ -176,11 +179,9 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
 
   // Load songs manifest
   useEffect(() => {
-    fetch('/songs-manifest.json', { cache: 'no-cache' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setSongsManifest(data) })
-      .catch(() => {})
+    loadSongsManifest(setSongsManifest).then(data => { if (data) setSongsManifest(data) })
   }, [])
+  useEffect(() => onValue(dbRef(db, 'songsAdded'), snap => setAddedSongs(snap.val() || {}), () => {}), [])
 
   // Load Bible data — Malayalam first (the display always starts in ML), English after
   useEffect(() => {
@@ -322,7 +323,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
         setMediaUrl(null)
         setMediaHtml(null)
         setMassPart({
-          text: val.text || '', role: val.role || null, note: val.note || null, label: val.label || '', ts: val.ts,
+          text: val.text || '', role: val.role || null, people: !!val.people, note: val.note || null, label: val.label || '', ts: val.ts,
           path: val.seq.path, key: val.seq.key, part: val.seq.part ?? 0, slide: val.seq.slide ?? 0,
         })
         return
@@ -529,6 +530,17 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   const showVerseRef = useRef(showVerse)
   showVerseRef.current = showVerse
 
+  // When the display opens it starts on 2 Timothy 2:9, once the Malayalam Bible has loaded,
+  // unless the remote has already put something on screen
+  const openingVerseShown = useRef(false)
+  useEffect(() => {
+    if (openingVerseShown.current || !bibleML) return
+    openingVerseShown.current = true
+    const { currentRef: cr, songState: ss } = stateRef.current
+    if (cr || ss || mediaSeqRef.current) return
+    showVerseRef.current({ book: '2 Timothy', chapter: 2, verse: 9 }, { addToRecent: false })
+  }, [bibleML])
+
   // Load and display a CCC paragraph
   const handleSelectCCC = useCallback(async (paragraphNum) => {
     mediaSeqRef.current = null
@@ -574,8 +586,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     let parsed, path, lang
     for (const [p, l] of candidates) {
       try {
-        const bytes = await getBytes(storageRef(storage, p))
-        parsed = parseLyrics(new TextDecoder('utf-8').decode(bytes))
+        parsed = parseLyrics(await loadLyrics(p))
         path = p; lang = l
         break
       } catch { /* try next */ }
@@ -586,6 +597,9 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     }
     const { title, slides } = parsed
     if (!slides.length) { setStatus('No slides in song'); return }
+    if (stateRef.current.songState?.filename !== filename) {
+      set(dbRef(db, `${P}/recentSongs/${filename}`), { title, ts: Date.now() }).catch(() => {})
+    }
     const idx = Math.max(0, Math.min(slideIdx, slides.length - 1))
     const slide = slides[idx]
     setMediaUrl(null)
@@ -599,21 +613,41 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     set(dbRef(db, `${P}/liveSlide`), { type: 'song', filename, slideIdx: idx, ts: Date.now() }).catch(() => {})
   }, [])
 
+  // The Mass book (several MB) is kept on this laptop and downloaded again only when its version
+  // changes (someone edited it), so stepping through slides needs no download
+  const massBooksRef = useRef({})
+  const getMassBook = useCallback((path) => {
+    let book = massBooksRef.current[path]
+    if (!book) {
+      book = massBooksRef.current[path] = {}
+      book.ready = new Promise(resolve => {
+        book.unsub = onValue(dbRef(db, massVersionPath(path)), async snap => {
+          try { book.val = await loadMassBook(path, snap.val()) } catch { /* keep the copy we have */ }
+          resolve()
+        }, () => { delete massBooksRef.current[path]; resolve() })
+      })
+    }
+    return book.ready.then(() => book.val || {})
+  }, [])
+  useEffect(() => () => Object.values(massBooksRef.current).forEach(b => b.unsub?.()), [])
+  // Start loading as soon as a Mass slide is on screen, so the first ◀ ▶ is already instant
+  useEffect(() => { if (massPart?.path) getMassBook(massPart.path) }, [massPart?.path, getMassBook])
+
   const stepMedia = async (dir) => {
     const seq = mediaSeqRef.current
     if (!seq) return
     let list = []  // [{ key, url, name }] in order
     try {
       if (seq.kind === 'holyMass') {
-        const val = (await get(dbRef(db, seq.path))).val() || {}  // shared Holy Mass list, not per session
+        const val = await getMassBook(seq.path)  // shared Holy Mass list, not per session
         list = Object.entries(val)
           .sort(([, a], [, b]) => (a.ts || 0) - (b.ts || 0))
           // one entry per speaker part; a page without text stays a single image entry
           .flatMap(([key, d]) => {
-            const label = `${seq.title ? `${seq.title} · ` : ''}${d.label ? `Page ${d.label}` : 'Unnumbered'}`
+            const label = `${seq.title ? `${seq.title} · ` : ''}${d.label ? `Page ${d.label}${d.title ? ` · ${d.title}` : ''}` : 'Unnumbered'}`
             const parts = (d.parts || []).filter(pt => pt.text)  // rubric-only parts aren't shown
             const slides = parts.flatMap((pt, i) => (pt.slides?.length ? pt.slides : [pt.text])
-              .map((text, j) => ({ key, part: i, slide: j, url: d.url, name: label, text, role: pt.role || null })))
+              .map((text, j) => ({ key, part: i, slide: j, url: d.url, name: label, text, role: pt.role || null, people: pt.roleName === 'People' })))
             return slides.length ? slides : [{ key, part: 0, slide: 0, url: d.url, name: label, text: '' }]
           })
       } else if (seq.kind === 'slides') {
@@ -638,7 +672,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     if (!item || next < 0) return
     const nextSeq = { ...seq, key: item.key, part: item.part ?? 0, slide: item.slide ?? 0 }
     await set(dbRef(db, `${P}/currentMedia`), item.text
-      ? { type: 'text', text: item.text, role: item.role, label: item.name, lang: seq.lang || null, ts: Date.now(), seq: nextSeq }
+      ? { type: 'text', text: item.text, role: item.role, people: !!item.people, label: item.name, lang: seq.lang || null, ts: Date.now(), seq: nextSeq }
       : { type: 'image', url: item.url, name: item.name, ts: Date.now(), seq: nextSeq },
     ).catch(() => {})
   }
@@ -664,6 +698,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   // Save verse edit to Firebase (debounced)
   const saveEditTimerRef = useRef(null)
   const handleVerseEdit = (newText) => {
+    if (!features.editText) return
     setVerseText(newText)
     // In song mode, keep slides in sync so Save captures the edit
     const { songState: ss } = stateRef.current
@@ -671,7 +706,9 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
       setSongHasEdits(true)
       setSongState(prev => {
         if (!prev) return prev
-        const slides = prev.slides.map((s, i) => i === prev.slideIdx ? { ...s, text: newText } : s)
+        // Repeats (e.g. the same verse for M then F) had identical text: edit them all together
+        const old = prev.slides[prev.slideIdx]?.text
+        const slides = prev.slides.map((s, i) => (i === prev.slideIdx || s.text === old) ? { ...s, text: newText } : s)
         return { ...prev, slides }
       })
       return
@@ -706,18 +743,21 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   // Save edited song back to Firebase Storage
   const [songSaving, setSongSaving] = useState(false)
   const [songHasEdits, setSongHasEdits] = useState(false)
+  const [songSaveError, setSongSaveError] = useState('')
   const saveSong = async () => {
     const ss = stateRef.current.songState
     if (!ss) return
     setSongSaving(true)
+    setSongSaveError('')
     try {
       const content = serializeLyrics(ss.title, ss.slides)
-      const fileRef = storageRef(storage, ss.path)
-      await uploadString(fileRef, content, 'raw', { contentType: 'text/plain; charset=utf-8' })
+      await httpsCallable(functions, 'saveLyricsFile')({ path: ss.path, content })   // written by the server
+      saveLyricsCopy(ss.path, content)
       setSongHasEdits(false)
       setStatus('Song saved ✓')
       setTimeout(() => setStatus('Ready'), 2000)
     } catch (e) {
+      setSongSaveError(e.message || 'Save failed')
       setStatus('Save failed: ' + e.message)
     } finally {
       setSongSaving(false)
@@ -947,18 +987,14 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   }
   const handleVoiceTextRef = useRef(handleVoiceText)
   handleVoiceTextRef.current = handleVoiceText
-  const [voice, setVoice] = useState(null)
   const voiceTsRef = useRef(PAGE_LOAD_TIME)
   useEffect(() => onValue(dbRef(db, `${P}/voice`), snap => {
     const v = snap.val()
-    setVoice(v)
     if (v?.final?.text && v.final.ts > voiceTsRef.current) {
       voiceTsRef.current = v.final.ts
       handleVoiceTextRef.current(v.final.text)
     }
   }), [])
-  const isListening = !!voice?.listening
-  const transcript = isListening && voice?.final?.text ? `Heard: ${voice.final.text}` : ''
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1040,14 +1076,13 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
       <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-3 sm:pt-4 pb-8">
         <Header
           isDark={isDark}
-          isListening={isListening}
           onPrev={prevVerse}
           onNext={nextVerse}
           displayMode={displayMode}
           onSetMode={setDisplayMode}
           onDecreaseFontSize={decreaseFontSize}
           onIncreaseFontSize={increaseFontSize}
-          onToggleTheme={() => { const id = nextThemeId(theme?.id); onSetTheme?.(id); set(dbRef(db, `${P}/settings/theme`), id).catch(() => {}) }}
+          onToggleTheme={features.themes ? () => { const id = nextThemeId(theme?.id); onSetTheme?.(id); set(dbRef(db, `${P}/settings/theme`), id).catch(() => {}) } : null}
           themeLabel={theme?.label}
           onToggleFullscreen={toggleFullscreen}
           userEmail={userEmail}
@@ -1064,6 +1099,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           onSelectSong={filename => showSongSlideRef.current(filename, 0)}
           onSongAiSearch={handleSongAiSearch}
           songAiLoading={songAiLoading}
+          features={features}
         />
 
         {/* AI search results panel */}
@@ -1153,15 +1189,6 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           </div>
         )}
 
-        {/* Transcript badge */}
-        {transcript && (
-          <p className={`mt-2 text-xs px-3 py-1.5 rounded-lg font-mono leading-relaxed whitespace-pre-wrap ${
-            isDark ? 'text-slate-400 bg-white/[0.03]' : 'text-slate-500 bg-black/[0.03]'
-          }`}>
-            {transcript}
-          </p>
-        )}
-
         <VerseStage
           ref={verseStageRef}
           isDark={isDark}
@@ -1169,7 +1196,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           verseText={verseText}
           displayMode={songState ? songState.lang : mediaLang || displayMode}
           fontSize={massPart && massFontSize ? massFontSize : fontSize}
-          isRecording={isListening}
+          isRecording={false}
           isFullscreen={isFullscreen}
           onVerseEdit={handleVerseEdit}
           onToggleFullscreen={toggleFullscreen}
@@ -1177,14 +1204,17 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           onSaveSong={saveSong}
           songSaving={songSaving}
           songHasEdits={songHasEdits}
+          songSaveError={songSaveError}
           mediaUrl={mediaUrl}
           mediaHtml={mediaHtml}
-          bgImageUrl={bgImageUrl}
+          bgImageUrl={features.media ? bgImageUrl : null}
           bgImageOpacity={bgImageOpacity}
-          eventFrame={eventFrame}
+          eventFrame={features.eventFrame ? eventFrame : null}
+          canEdit={!!features.editText}
           theme={theme}
           isMassMode={!!massPart}
           massRole={massPart?.role}
+          massPeople={!!massPart?.people}
         />
 
         <RecentVerses

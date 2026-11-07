@@ -40,6 +40,7 @@ export function canon(s) {
     .toLowerCase()
     .normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '')
+    .replace(/ngng/g, 'ng').replace(/njnj/g, 'nj')   // ങ്ങ, ഞ്ഞ: "rogangngal" = "rogangal"
     .replace(/th/g, 't').replace(/dh/g, 'd').replace(/bh/g, 'b').replace(/gh/g, 'g').replace(/kh/g, 'k')
     .replace(/ph/g, 'f').replace(/sh/g, 's').replace(/zh/g, 'l').replace(/w/g, 'v').replace(/z/g, 's')
     .replace(/ee/g, 'i').replace(/oo/g, 'u').replace(/aa/g, 'a')
@@ -78,4 +79,14 @@ export function searchSongs(songs, query, limit = 12) {
   }
   hits.sort((a, b) => b.score - a.score || a.song.title.length - b.song.title.length)
   return hits.slice(0, limit).map(h => h.song)
+}
+
+// Songs added from the remote ("Add song", stored under songsAdded in the database) on top of the
+// published list; an added song with the same filename replaces the published entry
+export function withAddedSongs(songs, added) {
+  if (!songs) return songs
+  const extra = Object.values(added || {})
+  if (!extra.length) return songs
+  const names = new Set(extra.map(s => s.filename))
+  return [...songs.filter(s => !names.has(s.filename)), ...extra]
 }

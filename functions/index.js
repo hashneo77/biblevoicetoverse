@@ -27,6 +27,23 @@ async function requireAllowed(request) {
   return token.email.toLowerCase();
 }
 
+// Feature flags (same ids and defaults as src/features.js): the owner has every feature; others get
+// these defaults, changed per person under config/access/<emailKey>/features/<id>.
+const FEATURE_DEFAULTS = {
+  bible: true, ccc: true, songs: true, holyMass: true, slides: true, themes: true,
+  prayers: false, aiSearch: false, media: false, eventFrame: false, voice: false, addSong: false, editText: false,
+};
+
+async function requireFeature(request, id) {
+  const email = await requireAllowed(request);
+  if (email === OWNER_EMAIL) return email;
+  const snap = await admin.database().ref(`config/access/${emailKey(email)}/features/${id}`).get();
+  if (!(snap.exists() ? snap.val() === true : FEATURE_DEFAULTS[id])) {
+    throw new HttpsError('permission-denied', 'This feature is not enabled for your account.');
+  }
+  return email;
+}
+
 // Sets the `allowed` custom claim that Storage rules check (Storage can't read the allow-list).
 // The apps call this after sign-in, then refresh their ID token.
 exports.syncAccess = onCall(async (request) => {
@@ -71,7 +88,7 @@ const geminiKey = defineSecret('GEMINI_API_KEY');
 exports.searchSongs = onCall(
   { secrets: [geminiKey] },
   async (request) => {
-    await requireAllowed(request);
+    await requireFeature(request, 'aiSearch');
     const { query, songs } = request.data;
     if (!query || typeof query !== 'string' || !query.trim()) {
       throw new HttpsError('invalid-argument', 'query is required');
@@ -124,7 +141,7 @@ Return [] if nothing matches. Return ONLY the JSON array, no other text.`;
 exports.parseVoiceRef = onCall(
   { secrets: [geminiKey] },
   async (request) => {
-    await requireAllowed(request);
+    await requireFeature(request, 'voice');
     const { transcript, bookNames } = request.data;
     if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
       throw new HttpsError('invalid-argument', 'transcript is required');
@@ -184,7 +201,7 @@ Or null if not parseable. No other text.`;
 exports.searchVerses = onCall(
   { secrets: [geminiKey], minInstances: 1 },
   async (request) => {
-    await requireAllowed(request);
+    await requireFeature(request, 'aiSearch');
     const { query, bookNames, includeCCC } = request.data;
 
     if (!query || typeof query !== 'string' || !query.trim()) {
@@ -239,3 +256,51 @@ Return ONLY a JSON array, no markdown, no extra text.`;
     }
   }
 );
+
+// ── Add song (remote, addSong feature): prepare from text / images / web page, then save after review ──
+const songs = require('./songs');
+
+exports.prepareSong = onCall(
+  { secrets: [geminiKey], timeoutSeconds: 180, memory: '512MiB' },
+  async (request) => {
+    await requireFeature(request, 'addSong');
+    try {
+      return await songs.prepareSong(geminiKey.value(), request.data || {});
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      throw new HttpsError('internal', 'Could not read the song: ' + e.message);
+    }
+  }
+);
+
+exports.saveSong = onCall(async (request) => {
+  const email = await requireFeature(request, 'addSong');
+  try {
+    return await songs.saveSong(request.data || {}, email);
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError('internal', 'Could not save the song: ' + e.message);
+  }
+});
+
+// Display: save an edited song (Malayalam .txt or .manglish.txt) — written here rather than from the
+// browser so it doesn't depend on the Storage claim being present on the display's sign-in
+exports.saveLyricsFile = onCall(async (request) => {
+  await requireFeature(request, 'editText');
+  const path = String(request.data?.path || '');
+  const content = String(request.data?.content || '');
+  if (!/^lyrics-text\/[a-z0-9][a-z0-9-]*(\.manglish)?\.txt$/.test(path)) {
+    throw new HttpsError('invalid-argument', 'Not a song lyrics file.');
+  }
+  if (!content.trim() || Buffer.byteLength(content) > 200 * 1024) {
+    throw new HttpsError('invalid-argument', 'The song is empty or too large.');
+  }
+  if (!songs.parseBody(content.split(/\r?\n/).slice(2).join('\n')).length) {
+    throw new HttpsError('invalid-argument', 'The song has no slides.');
+  }
+  const file = admin.storage().bucket('biblevoicetoverse.firebasestorage.app').file(path);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError('not-found', 'That song file does not exist.');
+  await file.save(content, { contentType: 'text/plain; charset=utf-8', resumable: false });
+  return { ok: true };
+});

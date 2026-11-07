@@ -227,7 +227,7 @@ html, body, #root {
 }
 
 .testament-count {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   color: #6b7280;
   text-align: center;
@@ -287,33 +287,31 @@ html, body, #root {
 .book-list {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-@media (min-width: 480px) {
-  .book-list { grid-template-columns: repeat(3, 1fr); }
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 @media (min-width: 700px) {
-  .book-list { grid-template-columns: repeat(4, 1fr); }
+  .book-list { grid-template-columns: repeat(5, 1fr); }
 }
 
 .book-list li { display: contents; }
 
 .book-btn {
-  aspect-ratio: 1;
+  min-height: 64px;
   width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 10px 8px;
+  padding: 8px 3px;
   background: #fff;
   border: 1.5px solid #e0e7f0;
-  border-radius: 18px;
+  border-radius: 12px;
   cursor: pointer;
   text-align: center;
+  overflow-wrap: anywhere;
   transition: background 0.12s, transform 0.1s;
   box-shadow: 0 2px 8px rgba(11,61,145,0.06);
 }
@@ -330,7 +328,7 @@ html, body, #root {
 }
 
 .book-name-en {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #0b3d91;
   line-height: 1.2;
@@ -355,19 +353,20 @@ html, body, #root {
 }
 
 /* ── Chapter / verse grid ── */
+/* Chapter, verse and CCC number tiles: small, so many fit on a screen */
 .num-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
 }
 
 .num-grid:has(.ccc-range-btn) {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
 }
 
 @media (max-width: 360px) {
-  .num-grid { grid-template-columns: repeat(4, 1fr); }
-  .num-grid:has(.ccc-range-btn) { grid-template-columns: repeat(2, 1fr); }
+  .num-grid { grid-template-columns: repeat(6, 1fr); }
+  .num-grid:has(.ccc-range-btn) { grid-template-columns: repeat(3, 1fr); }
 }
 
 .num-btn {
@@ -377,8 +376,8 @@ html, body, #root {
   justify-content: center;
   background: #fff;
   border: 1px solid #e0e7f0;
-  border-radius: 12px;
-  font-size: 17px;
+  border-radius: 9px;
+  font-size: 14px;
   font-weight: 600;
   color: #0b3d91;
   cursor: pointer;
@@ -694,7 +693,9 @@ html, body, #root {
 
 .song-slide-preview {
   font-family: 'Noto Serif Malayalam', serif;
-  -webkit-line-clamp: 3;
+  display: block;            /* the whole slide, every line */
+  -webkit-line-clamp: unset;
+  overflow: visible;
   white-space: pre-line;
 }
 
@@ -1461,6 +1462,10 @@ html, body, #root {
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .holy-mass-part-btn:active { background: #fef2f2; }
+/* People's parts (all three Masses), so the congregation's lines stand out; the active slide still wins */
+.holy-mass-part-people { border-color: #fbbf24; background: #fffbeb; }
+.holy-mass-part-people .holy-mass-part-role { color: #b45309; }
+.holy-mass-part-people .holy-mass-part-num { background: #fde68a; color: #92400e; }
 .holy-mass-part-active { border: 2px solid #16a34a; background: #f0fdf4; }
 .holy-mass-part-num {
   flex-shrink: 0;
@@ -1649,3 +1654,85 @@ html, body, #root {
 .voice-dot { width: 10px; height: 10px; border-radius: 999px; background: #f87171; animation: voicePulse 1s infinite alternate; }
 .voice-heard { color: #fff; font-weight: 700; }
 @keyframes voicePulse { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* ── Voice Search tile + screen ── */
+.voice-testament-btn { border-color: #fecaca; }
+.voice-testament-btn .testament-label, .voice-testament-btn svg { color: #b91c1c; }
+.voice-testament-btn:active { background: #fef2f2; }
+.voice-strip { cursor: pointer; }
+.voice-view { display: flex; flex-direction: column; align-items: stretch; gap: 14px; }
+.voice-lang { display: flex; gap: 8px; justify-content: center; }
+.voice-lang-btn { padding: 8px 18px; border-radius: 999px; border: 1px solid #d1d5db; background: #fff;
+  font-weight: 700; color: #374151; cursor: pointer; }
+.voice-lang-btn.on { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.voice-lang-btn:disabled { opacity: 0.6; }
+.voice-big-btn { align-self: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  width: 200px; height: 200px; border-radius: 999px; border: none; cursor: pointer; font-size: 15px; font-weight: 700;
+  background: #fef2f2; color: #b91c1c; box-shadow: 0 6px 20px rgba(185,28,28,0.18); }
+.voice-big-btn.on { background: #dc2626; color: #fff; animation: voiceRing 1.4s infinite; }
+@keyframes voiceRing { 0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.5); } 100% { box-shadow: 0 0 0 26px rgba(220,38,38,0); } }
+.voice-hint { text-align: center; color: #6b7280; font-size: 13px; margin: 0; }
+.voice-live { padding: 14px; border-radius: 12px; background: #111827; color: #f9fafb; font-size: 18px; font-weight: 600;
+  text-align: center; min-height: 52px; }
+.voice-log { display: flex; flex-direction: column; gap: 6px; }
+.voice-log-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 10px; border: 1px solid #e5e7eb; background: #fff; text-align: left; cursor: pointer; }
+.voice-log-text { font-size: 15px; font-weight: 600; color: #111827; }
+.voice-log-time { flex-shrink: 0; font-size: 12px; color: #6b7280; }
+
+/* voice search: matched verses */
+.voice-matches-head { display: flex; align-items: center; justify-content: space-between; }
+.voice-match { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb;
+  background: #fff; text-align: left; cursor: pointer; }
+.voice-match:active { background: #eff6ff; }
+.voice-match.sent { border: 2px solid #16a34a; background: #f0fdf4; }
+.voice-match-ref { font-size: 15px; font-weight: 800; color: #1e3a8a; }
+.voice-match.sent .voice-match-ref { color: #15803d; }
+.voice-match-text { font-size: 14px; color: #1f2937; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.voice-match-text.ml { font-family: 'Noto Serif Malayalam', serif; }
+.voice-match-heard { font-size: 12px; color: #9ca3af; }
+
+/* ── Add song ── */
+.add-song-open { align-self: flex-start; }
+.add-song-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.add-song-tab { padding: 8px 14px; border-radius: 999px; border: 1.5px solid #d1d5db; background: #fff;
+  color: #374151; font-size: 14px; font-weight: 600; cursor: pointer; }
+.add-song-tab-on { border-color: #6d28d9; background: #6d28d9; color: #fff; }
+.add-song-textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1.5px solid #d1d5db;
+  border-radius: 12px; font-size: 15px; line-height: 1.5; font-family: inherit; resize: vertical; }
+.add-song-ml { font-family: 'Noto Serif Malayalam', serif; }
+.add-song-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4b5563; }
+.add-song-check { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: #374151; }
+.add-song-warn { padding: 10px 12px; border-radius: 12px; background: #fffbeb; border: 1px solid #fcd34d; }
+.add-song-columns { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 700px) { .add-song-columns:not(.add-song-single) { grid-template-columns: 1fr 1fr; } }
+.add-song-problems { margin: 0; padding: 10px 12px 10px 28px; border-radius: 12px; background: #fef2f2;
+  border: 1px solid #fca5a5; color: #b91c1c; font-size: 14px; }
+.add-song-error { margin: 0; color: #b91c1c; font-size: 14px; }
+
+/* ── Per-user features (owner) ── */
+.access-user-block { display: flex; flex-direction: column; gap: 6px; }
+.access-features-open { background: #0f766e; color: #fff; }
+.access-features { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 10px 12px; margin-bottom: 6px;
+  border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
+@media (min-width: 560px) { .access-features { grid-template-columns: 1fr 1fr; } }
+.access-feature { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; color: #1f2937; cursor: pointer; }
+.access-feature input { margin-top: 3px; width: 18px; height: 18px; flex-shrink: 0; }
+.access-feature-name { font-weight: 600; }
+.access-feature-hint { display: block; font-size: 12px; color: #6b7280; }
+.access-features .mass-plan-btn { justify-self: start; }
+
+.mass-bar-font { font-size: 14px; min-width: 38px; }
+.mass-bar-font .font-sub, .mass-bar-font .font-sup { font-size: 10px; }
+
+.mass-bar-lock { min-width: 38px; }
+.mass-bar-lock-on { background: #dc2626; color: #fff; }
+.mass-bar-lock-on:disabled { opacity: 1; }
+
+/* Locked in Holy Mass: slides can't be sent (and show dimmed) but pages still scroll and open */
+.mass-locked .holy-mass-part-btn { opacity: 0.55; pointer-events: none; }
+
+.clear-screen-btn { color: #fecaca; }
+
+.result-text-full { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.result-text-en { color: #6b7280; font-style: italic; margin-top: 4px; }

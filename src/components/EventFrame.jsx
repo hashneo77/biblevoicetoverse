@@ -28,7 +28,10 @@ export function defaultFrameItems(legacy = {}) {
   return items
 }
 
-export const frameItems = (frame) => frame?.items || defaultFrameItems(frame || {})
+// A user with no frame yet starts empty; frames saved before items existed are converted
+const LEGACY_KEYS = ['title', 'subtitle', 'verse', 'verseRef', 'footer']
+export const frameItems = (frame) => frame?.items
+  || (frame && LEGACY_KEYS.some(k => frame[k] !== undefined) ? defaultFrameItems(frame) : {})
 
 export function EventFrame({ frame, isDark, selectedId, onItemPointerDown }) {
   const items = frameItems(frame)

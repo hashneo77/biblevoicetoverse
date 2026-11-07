@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { searchSongs } from '../utils/songSearch'
 import { getSearchSuggestions, getCCCSuggestions } from '../utils/parseReference'
 
-export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoading, isDark, songs, onSelectSong, onSongAiSearch, songAiLoading }) {
+export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoading, isDark, songs, onSelectSong, onSongAiSearch, songAiLoading, features = {} }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(0)
@@ -20,9 +20,9 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
 
   const bibleSuggestions = useMemo(() => {
     if (aiMode || songMode || !query) return []
-    if (isCCCQuery) return getCCCSuggestions(query)
-    return getSearchSuggestions(query, books, bibleMeta)
-  }, [query, books, bibleMeta, aiMode, songMode, isCCCQuery])
+    if (isCCCQuery) return features.ccc ? getCCCSuggestions(query) : []
+    return features.bible ? getSearchSuggestions(query, books, bibleMeta) : []
+  }, [query, books, bibleMeta, aiMode, songMode, isCCCQuery, features.ccc, features.bible])
 
   // Instant match on title + opening lyrics, ignoring Manglish spelling differences
   const songTitleSuggestions = useMemo(() => {
@@ -60,7 +60,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
       return
     }
     if (songMode) {
-      if (e.key === 'Enter' && query.trim()) {
+      if (e.key === 'Enter' && query.trim() && features.aiSearch) {
         e.preventDefault()
         onSongAiSearch?.(query.trim())
         setOpen(false)
@@ -135,7 +135,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
         )}
 
         {/* Song toggle */}
-        {songs?.length > 0 && (
+        {features.songs && songs?.length > 0 && (
           <button
             onMouseDown={e => { e.preventDefault(); toggleSongMode() }}
             title={songMode ? 'Switch to verse search' : 'Search songs'}
@@ -155,6 +155,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
         )}
 
         {/* AI toggle */}
+        {features.aiSearch && (
         <button
           onMouseDown={e => { e.preventDefault(); toggleAiMode() }}
           title={aiMode ? 'Switch to reference search' : 'Switch to AI semantic search'}
@@ -171,6 +172,7 @@ export function SearchBox({ bookAliases, bibleMeta, onSelect, onAiSearch, aiLoad
         >
           AI
         </button>
+        )}
       </div>
 
       {/* Autocomplete dropdown */}

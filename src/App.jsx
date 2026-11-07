@@ -6,6 +6,7 @@ import { auth, db, functions, OWNER_EMAIL, emailKey, sessionForEmail } from './f
 import { LoginPage } from './components/LoginPage'
 import { MainApp } from './components/MainApp'
 import { getTheme, nextThemeId } from './themes'
+import { featureAccess } from './features'
 
 // The owner can join any user's session; their pick is remembered on this device.
 const OWNER_SESSION_KEY = 'bv_owner_session'
@@ -20,6 +21,8 @@ function rememberOwnerSession(session) {
 // Each user has a private session, shared by their display and remote.
 async function syncClaims(user) {
   try {
+    const { claims } = await user.getIdTokenResult()
+    if (claims.allowed || claims.email === OWNER_EMAIL) return   // already set — skip the slow function call
     await httpsCallable(functions, 'syncAccess')()
     await user.getIdToken(true)
   } catch { /* Storage (song lyrics) may refuse until next sign-in; the database still works */ }
@@ -27,7 +30,7 @@ async function syncClaims(user) {
 
 async function resolveAccess(user) {
   const access = await checkAccess(user)
-  if (access.status === 'allowed') await syncClaims(user)
+  if (access.status === 'allowed') syncClaims(user)   // in the background; only Storage needs the claim
   return access
 }
 
@@ -66,6 +69,15 @@ export default function App() {
   }, [access.isOwner])
   const switchSession = (session) => { rememberOwnerSession(session); setAccess(a => ({ ...a, session })) }
 
+  // Features this account may use: all for the owner, otherwise set by the owner per person
+  const [featureOverrides, setFeatureOverrides] = useState({})
+  useEffect(() => {
+    if (access.status !== 'allowed' || access.isOwner) { setFeatureOverrides({}); return }
+    return onValue(ref(db, `config/access/${emailKey(access.email)}/features`),
+      snap => setFeatureOverrides(snap.val() || {}), () => setFeatureOverrides({}))
+  }, [access.status, access.isOwner, access.email])
+  const features = featureAccess(access.isOwner, featureOverrides)
+
   if (access.status !== 'allowed') return <LoginPage access={access} />
 
   return (
@@ -80,6 +92,7 @@ export default function App() {
       theme={getTheme(theme)}
       onToggleTheme={() => setTheme(t => nextThemeId(t))}
       onSetTheme={id => setTheme(getTheme(id).id)}
+      features={features}
     />
   )
 }

@@ -2,11 +2,11 @@
   "rules": {
     "english": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
-      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).child('features').child('editText').val() == true)"
     },
     "malayalam": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
-      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).child('features').child('editText').val() == true)"
     },
     "bibleVersion": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
@@ -32,6 +32,18 @@
     "$session": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || ($session == 'u_' + auth.token.email.toLowerCase().replace('.', ',') && root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists()))",
       ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || ($session == 'u_' + auth.token.email.toLowerCase().replace('.', ',') && root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists()))"
+    },
+    "holyMassVersion": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
+    },
+    "songsAdded": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": false
+    },
+    "prayers": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())"
     }
   }
 }

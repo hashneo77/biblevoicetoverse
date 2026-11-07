@@ -23,6 +23,7 @@ export function Header({
   bibleMeta,
   onSelectVerse,
   onAiSearch,
+  features = {},
   aiLoading,
   songs,
   onSelectSong,
@@ -63,13 +64,6 @@ export function Header({
       {/* ── Controls row ── */}
       <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
 
-        {/* Listening indicator: voice search runs on the owner's remote */}
-        {isListening && (
-          <span className={recBtn} title="Listening on the remote">
-            <MicIcon active />
-          </span>
-        )}
-
         {/* Prev / Next */}
         <button onClick={onPrev} className={ghostBtn} title="Previous verse (←)">◀</button>
         <button onClick={onNext} className={ghostBtn} title="Next verse (→)">▶</button>
@@ -105,9 +99,11 @@ export function Header({
         <button onClick={onToggleFullscreen} className={ghostBtn} title="Fullscreen (F)">⤢</button>
 
         {/* Theme toggle */}
-        <button onClick={onToggleTheme} className={ghostBtn} title={`Theme: ${themeLabel || ''} — tap for the next theme`}>
-          🎨
-        </button>
+        {onToggleTheme && (
+          <button onClick={onToggleTheme} className={ghostBtn} title={`Theme: ${themeLabel || ''} — tap for the next theme`}>
+            🎨
+          </button>
+        )}
 
         {/* Owner: join any user's screen */}
         {sessions && onSwitchSession && (
@@ -143,6 +139,7 @@ export function Header({
             onSelectSong={onSelectSong}
             onSongAiSearch={onSongAiSearch}
             songAiLoading={songAiLoading}
+          features={features}
           />
         </div>
 
@@ -161,6 +158,7 @@ export function Header({
           onSelectSong={onSelectSong}
           onSongAiSearch={onSongAiSearch}
           songAiLoading={songAiLoading}
+          features={features}
         />
       </div>
     </header>
