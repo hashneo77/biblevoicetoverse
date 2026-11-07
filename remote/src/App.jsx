@@ -447,6 +447,23 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     });
   }, []);
 
+  // When the display last showed each kind of thing, so the locate button can go to the newest
+  const liveTsRef = useRef({ slide: 0, ccc: 0, media: 0 });
+  const liveMediaRef = useRef(null);
+  const liveCccRef = useRef(null);
+  useEffect(() => {
+    const offs = [
+      onValue(ref(db, `${P}/liveSlide/ts`), snap => { liveTsRef.current.slide = snap.val() || 0; }),
+      onValue(ref(db, `${P}/cccParagraph`), snap => {
+        const v = snap.val(); liveTsRef.current.ccc = v?.ts || 0; liveCccRef.current = v?.paragraph != null ? Number(v.paragraph) : null;
+      }),
+      onValue(ref(db, `${P}/currentMedia`), snap => {
+        const v = snap.val(); liveTsRef.current.media = v?.ts || 0; liveMediaRef.current = v?.type === 'clear' ? null : (v?.seq || null);
+      }),
+    ];
+    return () => offs.forEach(off => off());
+  }, []);
+
   // Media
   const [mediaView, setMediaView] = useState(false);
   const [mediaLibrary, setMediaLibrary] = useState([]); // [{ key, type, url?, name?, html?, text?, ts }]
@@ -1378,11 +1395,40 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   };
 
   const goToLive = async () => {
-    if (!activeSongSlide && !activeVerse) return;
+    const t = liveTsRef.current;
+    const seq = liveMediaRef.current;
+    const mediaTarget = (seq?.kind === 'holyMass' || seq?.kind === 'slides') ? seq : null;
+    const cccTarget = liveCccRef.current;
+    if (!activeSongSlide && !activeVerse && !mediaTarget && cccTarget == null) return;
 
     // Reset all overlay views
-    setSettingsView(false); setMediaView(false);
+    setSettingsView(false); setMediaView(false); setVoiceView(false); setAddSongView(false);
     setSearchView(false); setSearchResults(null); setSearchQuery('');
+
+    // Whatever the display showed most recently wins
+    const newest = Math.max(t.slide, t.ccc, t.media);
+    if (mediaTarget && t.media === newest) {
+      setSongsView(false); setSelectedSong(null);
+      if (mediaTarget.kind === 'holyMass') {
+        const sk = Object.keys(HOLY_MASS_SECTIONS).find(k => HOLY_MASS_SECTIONS[k].path === mediaTarget.path);
+        if (sk) {
+          setSlidesView(false);
+          setMassGroup(HOLY_MASS_SECTIONS[sk].group || 'mass');
+          setHolyMassSection(sk); setPlanViewId(null); setHolyMassOpenKey(mediaTarget.key); setHolyMassView(true);
+          return;
+        }
+      } else {
+        setHolyMassView(false); setSlidesView(true); setDeckDraft(null); setOpenDeckKey(mediaTarget.deckKey);
+        return;
+      }
+    }
+    if (cccTarget != null && t.ccc === newest) {
+      setSongsView(false); setSelectedSong(null); setSlidesView(false); setHolyMassView(false);
+      const range = cccRanges.find(r => cccTarget >= r.start && cccTarget <= r.end);
+      if (range) { setSelectedCccRange(range); setView('ccc-paragraphs'); }
+      return;
+    }
+    setSlidesView(false); setHolyMassView(false);
 
     if (activeSongSlide) {
       // Load manifest on-demand if not yet available
@@ -1392,24 +1438,26 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         if (manifest) setSongsManifest(manifest);
       }
       const entry = withAddedSongs(manifest, addedSongs)?.find(s => s.filename === activeSongSlide.filename);
-      if (!entry) return;
+      if (!entry) { setError('That song is not in the song list yet.'); setTimeout(() => setError(null), 2500); return; }
       setSongsView(true);
       setSelectedSong(null);
       selectSong(entry);
     } else if (activeVerse) {
       const { book, chapter } = activeVerse;
-      // Wait for books to finish loading if needed
-      let key = nameToKey[book];
-      if (!key && booksLoading) {
-        // Books haven't loaded yet — nothing to navigate to
-        setError('Still loading books, please try again.');
-        setTimeout(() => setError(null), 2000);
+      // The book list loads in the background: wait for it (up to ~8 s) rather than doing nothing
+      let key = nameToKeyRef.current[book];
+      for (let i = 0; !key && i < 40; i++) {
+        await new Promise(r => setTimeout(r, 200));
+        key = nameToKeyRef.current[book];
+      }
+      if (!key) {
+        setError('Books are still loading — try the locate button again in a moment.');
+        setTimeout(() => setError(null), 2500);
         return;
       }
-      if (!key) return;
-      const t = OT_BOOKS.includes(book) ? 'OT' : 'NT';
+      const tst = OT_BOOKS.includes(book) ? 'OT' : 'NT';
       setSongsView(false); setSelectedSong(null); setSongQuery('');
-      setTestament(t);
+      setTestament(tst);
       setSelectedBook(book);
       setSelectedBookKey(key);
       setSelectedChapter(String(chapter));
@@ -1484,7 +1532,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
           <ChevronRight small />
         </button>
         <button
-          className={`settings-btn icon-only${(activeSongSlide || activeVerse) ? ' live-pointer-btn' : ''}`}
+          className={`settings-btn icon-only${(activeSongSlide || activeVerse || activeHolyMassKey || activeSlide) ? ' live-pointer-btn' : ''}`}
           onClick={goToLive}
           aria-label="Go to current slide"
           title="Go to current slide"
