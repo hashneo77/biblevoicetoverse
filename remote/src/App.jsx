@@ -277,6 +277,14 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     });
   }, []);
 
+  // Recent filter: a Bible entry is Malayalam when its label uses Malayalam script; CCC shows in both
+  const [recentLang, setRecentLang] = useState('all');
+  const shownRecent = recentSent.filter(r => {
+    if (recentLang === 'all' || r.type === 'ccc') return true;
+    const ml = /[ഀ-ൿ]/.test(r.key || '');
+    return recentLang === 'ml' ? ml : !ml;
+  });
+
   const RECENT_SONGS_PATH = `${P}/recentSongs`;
   const [recentSongs, setRecentSongs] = useState([]);
   useEffect(() => onValue(ref(db, RECENT_SONGS_PATH), snap => {
@@ -2446,20 +2454,28 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         {!songsView && !searchView && !mediaView && !settingsView && !holyMassView && !slidesView && !voiceView && view === 'recent' && (
           recentSent.length === 0
             ? <p className="search-status">Nothing sent yet this session.</p>
-            : <ul className="search-results">
-                {recentSent.map((r, i) => (
+            : <>
+              <div className="recent-lang-filter" role="group" aria-label="Filter by language">
+                {[['all', 'All'], ['en', 'English'], ['ml', 'Malayalam']].map(([id, label]) => (
+                  <button key={id} className={`recent-lang-chip${recentLang === id ? ' active' : ''}`} onClick={() => setRecentLang(id)}>{label}</button>
+                ))}
+              </div>
+              {shownRecent.length === 0 && <p className="search-status">Nothing in this language yet.</p>}
+              <ul className="search-results">
+                {shownRecent.map((r, i) => (
                   <li key={i}>
                     <button
                       className={`search-result-btn${r.type === 'ccc' ? ' search-result-ccc' : ''}`}
                       onClick={() => resendRecent(r)}
                     >
                       <span className={`result-ref${r.type === 'ccc' ? ' result-ref-ccc' : ''}`}>{r.key}</span>
-                      {r.text && <span className="result-text recent-verse-text">{r.text}</span>}
+                      {r.text && <span className="result-text result-text-full recent-verse-text">{r.text}</span>}
                       <span className="result-reason">tap to send again</span>
                     </button>
                   </li>
                 ))}
               </ul>
+            </>
         )}
 
         {/* ── CCC range picker ── */}

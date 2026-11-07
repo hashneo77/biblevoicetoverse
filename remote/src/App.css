@@ -1736,3 +1736,7 @@ html, body, #root {
 
 .result-text-full { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .result-text-en { color: #6b7280; font-style: italic; margin-top: 4px; }
+
+.recent-lang-filter { display: flex; gap: 8px; margin: 0 0 12px; }
+.recent-lang-chip { flex: 1; padding: 9px 0; border-radius: 10px; border: 1.5px solid #cbd5e1; background: #fff; color: #334155; font-size: 14px; font-weight: 600; }
+.recent-lang-chip.active { background: #0f3d91; border-color: #0f3d91; color: #fff; }
