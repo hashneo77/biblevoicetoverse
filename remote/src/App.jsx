@@ -278,7 +278,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
   }, []);
 
   // Recent filter: a Bible entry is Malayalam when its label uses Malayalam script; CCC shows in both
-  const [recentLang, setRecentLang] = useState('all');
+  const [recentLang, setRecentLang] = useState('ml');
   // The same verse is logged by both the remote and the display (different labels): list it once,
   // newest position, preferring the copy that has text
   const recentId = r => r.type === 'ccc' ? `ccc|${r.paragraph}` : `${r.book}|${r.chapter}|${r.verse}|${r.endVerse || ''}`;
