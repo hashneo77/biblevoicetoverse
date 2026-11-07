@@ -221,7 +221,10 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           fbKey,
         }))
         .sort((a, b) => (b.ts || 0) - (a.ts || 0))
-        .filter((item, idx, arr) => arr.findIndex(i => i.key === item.key) === idx)
+        .filter((item, idx, arr) => {
+          const id = it => it.ref?.ccc ? `ccc|${it.ref.ccc}` : `${it.ref?.book}|${it.ref?.chapter}|${it.ref?.verse}|${it.ref?.endVerse || ''}`
+          return arr.findIndex(i => i.key === item.key || id(i) === id(item)) === idx
+        })
         .slice(0, 100)
       setRecentVerses(list)
     })
