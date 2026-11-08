@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { ref, set, push, onValue, get, update } from 'firebase/database';
 import { httpsCallable } from 'firebase/functions';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { EventFrame, FRAME_FONTS, defaultFrameItems, frameItems } from './EventFrame';
+import { EventFrame, FRAME_FONTS, frameItems } from './EventFrame';
 import { THEMES, getTheme } from './themes';
 import { searchSongs, withAddedSongs } from './songSearch';
 import { AddSong } from './AddSong';
@@ -2766,11 +2766,6 @@ function EventFrameSettings({ P }) {
     setSel(null);
     if (it?.path) deleteObject(storageRef(storage, it.path)).catch(() => {});
   };
-  const useTemplate = () => {
-    if (!window.confirm('Replace your frame with the Encounter template? Your text and logos will be replaced.')) return;
-    saveItems(defaultFrameItems());
-    setSel(null);
-  };
   const clearAll = () => {
     if (!window.confirm('Remove all text and logos from your frame?')) return;
     Object.values(items).forEach(x => { if (x.path) deleteObject(storageRef(storage, x.path)).catch(() => {}); });
@@ -2802,7 +2797,6 @@ function EventFrameSettings({ P }) {
           </label>
           <button className={`ef-btn${border ? ' ef-on' : ''}`} onClick={() => save({ border: !border })}>Border {border ? 'on' : 'off'}</button>
           <button className="ef-btn" onClick={clearAll}>Clear all</button>
-          <button className="ef-btn" onClick={useTemplate}>Encounter template</button>
         </div>
 
         <div ref={boxRef} className="ef-preview" onPointerDown={e => { if (e.target === e.currentTarget) setSel(null); }}>

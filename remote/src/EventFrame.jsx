@@ -14,24 +14,8 @@ export const FRAME_FONTS = {
   malayalam: { label: 'Malayalam', css: "'Noto Serif Malayalam', serif", weight: 600 },
 }
 
-// The Encounter layout, also used to turn the earlier text-only settings into items
-export function defaultFrameItems(legacy = {}) {
-  const t = (k, d) => (legacy[k] !== undefined ? legacy[k] : d)
-  const items = {
-    title: { type: 'text', text: t('title', 'Encounter'), x: 15, y: 9, size: 3.6, font: 'script', color: '#e0245e' },
-    subtitle: { type: 'text', text: t('subtitle', 'Youth & Young Couples Convention'), x: 15, y: 16, size: 1.0, font: 'caps', color: '' },
-    verse: { type: 'text', text: t('verse', 'അങ്ങയുടെ സന്നിധിയിൽ ആനന്ദത്തിന്റെ പൂർണതയുണ്ട്'), x: 76, y: 8, size: 1.1, font: 'malayalam', color: '' },
-    verseRef: { type: 'text', text: t('verseRef', 'സങ്കീർത്തനങ്ങൾ 16:11'), x: 76, y: 13, size: 0.9, font: 'malayalam', color: '#d4a017' },
-    footer: { type: 'text', text: t('footer', 'Divine Retreat Centre UK  ·  Hesed  ·  27–29 October 2026  ·  10 am – 4 pm'), x: 50, y: 95, size: 1.1, font: 'bold', color: '#ffffff', style: 'ribbon' },
-  }
-  Object.keys(items).forEach(k => { if (!items[k].text) delete items[k] })
-  return items
-}
-
-// A user with no frame yet starts empty; frames saved before items existed are converted
-const LEGACY_KEYS = ['title', 'subtitle', 'verse', 'verseRef', 'footer']
-export const frameItems = (frame) => frame?.items
-  || (frame && LEGACY_KEYS.some(k => frame[k] !== undefined) ? defaultFrameItems(frame) : {})
+// A user with no frame yet starts empty
+export const frameItems = (frame) => frame?.items || {}
 
 export function EventFrame({ frame, isDark, selectedId, onItemPointerDown }) {
   const items = frameItems(frame)
