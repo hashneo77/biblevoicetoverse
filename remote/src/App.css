@@ -1742,3 +1742,5 @@ html, body, #root {
 .recent-lang-chip.active { background: #0f3d91; border-color: #0f3d91; color: #fff; }
 
 .holy-mass-thumb-text { display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-family: 'Noto Serif Malayalam', serif; font-size: 13px; line-height: 1.5; color: #374151; background: #fff; overflow: hidden; aspect-ratio: 3 / 4; }
+
+.mass-bar-lang { min-width: 44px; font-weight: 700; }

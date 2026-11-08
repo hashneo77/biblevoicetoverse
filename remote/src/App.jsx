@@ -45,7 +45,10 @@ const HOLY_MASS_SECTIONS = {
   en: { label: 'Manglish Mass', path: 'holyMass/manglish', lang: 'EN', group: 'mass' },
   eng: { label: 'English Mass', path: 'holyMass/english', lang: 'EN', group: 'mass' },   // Roman Missal, one page per section
   novena: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena', lang: 'ML', group: 'prayers' },
+  // the same novena in Manglish: not a tile of its own, the EN/ML button switches between the two
+  novenaEn: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena-manglish', lang: 'EN', group: 'prayers', hidden: true },
 };
+const LANG_PAIRS = { novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' } };
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
 // Malayalam book names, keyed by the exact English names used above.
@@ -1218,6 +1221,12 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     catch (e) { setError('Setting failed: ' + e.message); }
   };
 
+  // inside the novena the EN/ML button switches between the Malayalam and Manglish texts
+  useEffect(() => {
+    const to = LANG_PAIRS[holyMassSection]?.[language];
+    if (to && to !== holyMassSection) { setHolyMassSection(to); setPlanViewId(null); }
+  }, [language, holyMassSection]);
+
   const toggleLanguage = () => {
     const next = language === 'EN' ? 'ML' : 'EN';
     setLanguage(next);
@@ -1649,6 +1658,13 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             <div className="mass-bar-group">
               <button className="mass-bar-btn mass-bar-clear" disabled={frozen} onClick={clearMediaScreen} title="Clear the display">⬜ Clear</button>
             </div>
+            {LANG_PAIRS[holyMassSection] && (
+              <div className="mass-bar-group">
+                <button className="mass-bar-btn mass-bar-lang" onClick={toggleLanguage} aria-label="Switch language" title="Switch Malayalam / Manglish" disabled={frozen}>
+                  {language === 'ML' ? 'ML' : 'EN'}
+                </button>
+              </div>
+            )}
             <div className="mass-bar-group">
               <button className="mass-bar-btn mass-bar-font" onClick={() => sendFontSize(-1)} aria-label="Decrease font" disabled={frozen}>A<span className="font-sub">−</span></button>
               <button className="mass-bar-btn mass-bar-font" onClick={() => sendFontSize(1)} aria-label="Increase font" disabled={frozen}>A<span className="font-sup">+</span></button>
@@ -2055,10 +2071,11 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
         {/* ── Holy Mass view ── */}
         {holyMassView && !holyMassSection && (
           <div className="testament-grid">
-            {Object.entries(HOLY_MASS_SECTIONS).filter(([, s]) => s.group === massGroup).map(([key, { label }]) => {
+            {Object.entries(HOLY_MASS_SECTIONS).filter(([, s]) => s.group === massGroup && !s.hidden).map(([k0, { label }]) => {
+              const key = LANG_PAIRS[k0]?.[language] || k0;   // the novena opens in the language chosen with EN/ML
               const count = holyMassLibraries[key].length;
               return (
-                <button key={key} className="testament-btn holy-mass-testament-btn" onClick={() => setHolyMassSection(key)}>
+                <button key={k0} className="testament-btn holy-mass-testament-btn" onClick={() => setHolyMassSection(key)}>
                   <CrossIcon />
                   <span className="testament-label">{label}</span>
                   <span className="testament-count">{!holyMassLoaded[key] ? 'Loading…' : count > 0 ? `${count} page${count !== 1 ? 's' : ''}` : 'No pages yet'}</span>
