@@ -1227,10 +1227,36 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
     if (to && to !== holyMassSection) { setHolyMassSection(to); setPlanViewId(null); }
   }, [language, holyMassSection]);
 
+  // If the display is showing a novena slide, show the same slide in the other language
+  const followNovenaLanguage = async (next) => {
+    const seq = liveMediaRef.current;
+    if (!seq || seq.kind !== 'holyMass' || frozen) return;
+    const from = Object.keys(LANG_PAIRS).find(k => HOLY_MASS_SECTIONS[k].path === seq.path);
+    const to = from && LANG_PAIRS[from][next];
+    if (!to || to === from) return;
+    const oldPart = holyMassTextParts(holyMassLibraries[from]?.find(i => i.key === seq.key))[seq.part ?? 0];
+    const page = holyMassLibraries[to]?.find(i => i.key === seq.key);
+    const part = holyMassTextParts(page)[seq.part ?? 0];
+    if (!part) return;
+    const slides = part.slides?.length ? part.slides : [part.text];
+    const oldCount = oldPart?.slides?.length || 1;
+    const idx = oldCount > 1 ? Math.round((seq.slide ?? 0) / (oldCount - 1) * (slides.length - 1)) : 0;
+    const sec = HOLY_MASS_SECTIONS[to];
+    const newSeq = { kind: 'holyMass', path: sec.path, key: seq.key, part: seq.part ?? 0, slide: idx, title: sec.label, lang: sec.lang };
+    setActiveHolyMassKey(seq.key); setActiveHolyMassPart(newSeq.part); setActiveHolyMassSlide(idx);
+    try {
+      await set(ref(db, `${P}/currentMedia`), {
+        type: 'text', text: slides[idx], role: part.role || null, people: part.roleName === 'People',
+        label: holyMassSentName({ ...page, key: seq.key }), lang: sec.lang, ts: Date.now(), seq: newSeq,
+      });
+    } catch (e) { setError('Send failed: ' + e.message); }
+  };
+
   const toggleLanguage = () => {
     const next = language === 'EN' ? 'ML' : 'EN';
     setLanguage(next);
     sendSetting('language', next);
+    followNovenaLanguage(next);
   };
 
   const pickTheme = (id) => {
