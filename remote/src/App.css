@@ -1740,3 +1740,5 @@ html, body, #root {
 .recent-lang-filter { display: flex; gap: 8px; margin: 0 0 12px; }
 .recent-lang-chip { flex: 1; padding: 9px 0; border-radius: 10px; border: 1.5px solid #cbd5e1; background: #fff; color: #334155; font-size: 14px; font-weight: 600; }
 .recent-lang-chip.active { background: #0f3d91; border-color: #0f3d91; color: #fff; }
+
+.holy-mass-thumb-text { display: flex; align-items: center; justify-content: center; text-align: center; padding: 10px; font-family: 'Noto Serif Malayalam', serif; font-size: 13px; line-height: 1.5; color: #374151; background: #fff; overflow: hidden; aspect-ratio: 3 / 4; }

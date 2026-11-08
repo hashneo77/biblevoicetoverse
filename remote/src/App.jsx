@@ -2105,7 +2105,9 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
                 return (
                   <div key={item.key} className={`holy-mass-card${isActive ? ' holy-mass-active' : ''}`}>
                     <button className="media-list-thumb-btn" onClick={() => setHolyMassOpenKey(item.key)}>
-                      <img src={item.thumb || item.url} alt={item.name} className="holy-mass-thumb" loading="lazy" decoding="async" />
+                      {item.thumb || item.url
+                        ? <img src={item.thumb || item.url} alt={item.name} className="holy-mass-thumb" loading="lazy" decoding="async" />
+                        : <div className="holy-mass-thumb holy-mass-thumb-text">{item.thumbText || item.name}</div>}
                       {isSent && <div className="media-sent-overlay">✓ Sent</div>}
                     </button>
                     <div className="holy-mass-card-footer">
@@ -2176,7 +2178,7 @@ function RemoteApp({ sessionPrefix, userEmail, isOwner, onSwitchSession }) {
             <div className="search-view">
               {planEditBanner}
 
-              <img src={page.url} alt={holyMassPageLabel(page, pageIdx)} className="holy-mass-page-full" style={{ marginBottom: 12 }} />
+              {page.url && <img src={page.url} alt={holyMassPageLabel(page, pageIdx)} className="holy-mass-page-full" style={{ marginBottom: 12 }} />}
 
               {parts.length === 0 && <p className="section-heading">No text on this page</p>}
               <div className="holy-mass-parts">
