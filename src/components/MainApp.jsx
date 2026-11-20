@@ -126,6 +126,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   const [remoteFullscreenPrompt, setRemoteFullscreenPrompt] = useState(false)
   const [status, setStatus] = useState('Loading…')
   const [cccData, setCccData] = useState(null)
+  const cccShownRef = useRef(null)   // paragraph number while the display is showing a CCC paragraph
   const [aiLoading, setAiLoading] = useState(false)
   const [aiResults, setAiResults] = useState(null) // null=hidden, array=visible
   const [songAiLoading, setSongAiLoading] = useState(false)
@@ -318,6 +319,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
       const val = snap.val()
       if (!val?.ts || val.ts < PAGE_LOAD_TIME) return
       mediaSeqRef.current = val.seq || null
+      cccShownRef.current = null
       setSongState(null)
       setCurrentRef(null)
       setVerseRefLabel(val.label || '')
@@ -460,6 +462,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
 
   const showVerse = useCallback(async (parsed, { addToRecent = true, rangeNav = false } = {}) => {
     if (!parsed) return
+    cccShownRef.current = null
     mediaSeqRef.current = null
     setMediaLang(null)
     setMassPart(null)
@@ -545,7 +548,8 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
   }, [bibleML])
 
   // Load and display a CCC paragraph
-  const handleSelectCCC = useCallback(async (paragraphNum) => {
+  const handleSelectCCC = useCallback(async (paragraphNum, { addToRecent = true } = {}) => {
+    cccShownRef.current = Number(paragraphNum)
     mediaSeqRef.current = null
     setMediaLang(null)
     setMassPart(null)
@@ -561,13 +565,21 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
         return
       }
     }
-    const text = ccc?.[String(paragraphNum)]
+    let text = ccc?.[String(paragraphNum)]
+    // Malayalam display: use the Malayalam paragraph when there is one (a few are missing), else English
+    if (stateRef.current.displayMode === 'ML') {
+      try {
+        const ml = (await get(dbRef(db, `cccMalayalam/${paragraphNum}`))).val()
+        if (typeof ml === 'string' && ml.trim()) text = ml
+      } catch { /* offline: English */ }
+      if (cccShownRef.current !== Number(paragraphNum)) return   // something else was shown meanwhile
+    }
     if (text) {
       const label = `CCC #${paragraphNum}`
       setVerseRefLabel(label)
       setVerseText(text)
       setCurrentRef(null)
-      saveRecent({ ccc: paragraphNum }, label, text)
+      if (addToRecent) saveRecent({ ccc: paragraphNum }, label, ccc?.[String(paragraphNum)] || text)
       setStatus(label)
     } else {
       setStatus(`CCC #${paragraphNum} not found`)
@@ -579,6 +591,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
 
   // Load and display a song slide
   const showSongSlide = useCallback(async (filename, slideIdx) => {
+    cccShownRef.current = null
     mediaSeqRef.current = null
     setMediaLang(null)
     setMassPart(null)
@@ -1068,6 +1081,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
     const { currentRef: cr, songState: ss } = stateRef.current
     if (ss) showSongSlideRef.current(ss.filename, ss.slideIdx)
     else if (cr) showVerseRef.current(cr)
+    else if (cccShownRef.current) handleSelectCCCRef.current(cccShownRef.current, { addToRecent: false })
   }, [displayMode])
 
   return (

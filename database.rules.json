@@ -20,6 +20,10 @@
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
       ".write": false
     },
+    "cccMalayalam": {
+      ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+      ".write": false
+    },
     "config": {
       ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'",
       ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'",
