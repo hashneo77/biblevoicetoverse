@@ -18,11 +18,11 @@
     },
     "ccc": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
-      ".write": false
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'"
     },
     "cccMalayalam": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email == 'josephgeorge7797@gmail.com' || root.child('config').child('access').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
-      ".write": false
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'"
     },
     "config": {
       ".read": "auth != null && auth.token.email_verified == true && auth.token.email == 'josephgeorge7797@gmail.com'",

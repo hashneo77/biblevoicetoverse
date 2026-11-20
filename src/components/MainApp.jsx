@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { ref as dbRef, get, set, push, onValue } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
-import { db, functions, storage } from '../firebase'
+import { auth, db, functions, storage, OWNER_EMAIL } from '../firebase'
 import { getCachedBible, putCachedBible } from '../bibleCache'
 import { loadMassBook, massVersionPath, loadSongsManifest, loadLyrics, saveLyricsCopy } from '../offlineCache'
 import { withAddedSongs } from '../utils/songSearch'
@@ -730,7 +730,23 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
       return
     }
     const { currentRef: cr, displayMode: dm, bibleEN: en, bibleML: ml } = stateRef.current
-    if (!cr) return
+    if (!cr) {
+      // Catechism paragraph: only the admin may edit; saved to the database so it sticks
+      const num = cccShownRef.current
+      if (!num || auth.currentUser?.email?.toLowerCase() !== OWNER_EMAIL) return
+      clearTimeout(saveEditTimerRef.current)
+      saveEditTimerRef.current = setTimeout(async () => {
+        try {
+          await set(dbRef(db, `${dm === 'ML' ? 'cccMalayalam' : 'ccc'}/${num}`), newText)
+          if (dm !== 'ML' && stateRef.current.cccData) stateRef.current.cccData[String(num)] = newText
+          setStatus('Saved ✓')
+          setTimeout(() => setStatus('Ready'), 2000)
+        } catch {
+          setStatus('Save failed')
+        }
+      }, 1200)
+      return
+    }
     const store = dm === 'EN' ? en : ml
     const fbPath = dm === 'EN' ? 'english' : 'malayalam'
     if (!store) return
@@ -1227,7 +1243,7 @@ export function MainApp({ isDark, theme, onToggleTheme, onSetTheme, sessionPrefi
           bgImageUrl={features.media ? bgImageUrl : null}
           bgImageOpacity={bgImageOpacity}
           eventFrame={features.eventFrame ? eventFrame : null}
-          canEdit={!!features.editText}
+          canEdit={!!features.editText && (!/^CCC #/.test(verseRefLabel || '') || auth.currentUser?.email?.toLowerCase() === OWNER_EMAIL)}
           theme={theme}
           isMassMode={!!massPart}
           massRole={massPart?.role}
