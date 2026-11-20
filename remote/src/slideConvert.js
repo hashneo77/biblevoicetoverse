@@ -83,6 +83,27 @@ async function pdfToSlides(file, onProgress) {
   return out;
 }
 
+const rgbOf = c => (c.match(/[\d.]+/g) || []).map(Number);
+const isWhitish = c => { const [r, g, b] = rgbOf(c); return r >= 235 && g >= 235 && b >= 235; };
+
+// Some decks (e.g. exported song slides) have white text and set no background at all, so on the white
+// page we render onto they come out blank. Detect that per slide: it has text, every text colour is
+// near-white, and nothing gives it a background (no fill, no background image, no picture).
+function needsDarkBackground(el) {
+  const cs = getComputedStyle(el);
+  const [r, g, b, a = 1] = rgbOf(cs.backgroundColor);
+  const blankBg = (a === 0 || (r >= 235 && g >= 235 && b >= 235)) && (!cs.backgroundImage || cs.backgroundImage === 'none');
+  if (!blankBg || el.querySelector('img, svg image, canvas')) return false;
+  let texts = 0;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!n.nodeValue.trim()) continue;
+    texts++;
+    if (!isWhitish(getComputedStyle(n.parentElement).color)) return false;
+  }
+  return texts > 0;
+}
+
 async function pptxToSlides(file, onProgress) {
   const [{ init }, { toJpeg }] = await Promise.all([import('pptx-preview'), import('html-to-image')]);
   // Render off-screen at full HD, then capture each slide element
@@ -101,9 +122,11 @@ async function pptxToSlides(file, onProgress) {
     for (let k = 0; k < slides.length; k++) {
       onProgress?.(`Converting slide ${k + 1} of ${slides.length}…`);
       const el = slides[k];
+      const dark = needsDarkBackground(el);
       const dataUrl = await toJpeg(el, {
-        quality: JPEG_QUALITY, pixelRatio: 1, backgroundColor: '#ffffff',
+        quality: JPEG_QUALITY, pixelRatio: 1, backgroundColor: dark ? '#000000' : '#ffffff',
         width: el.offsetWidth, height: el.offsetHeight,
+        ...(dark ? { style: { backgroundColor: '#000000' } } : {}),
       });
       out.push({ blob: await (await fetch(dataUrl)).blob(), ext: 'jpg' });
     }
