@@ -90,12 +90,19 @@ const isWhitish = c => { const [r, g, b] = rgbOf(c); return r >= 235 && g >= 235
 // page we render onto they come out blank. Detect that per slide: it has text, every text colour is
 // near-white, and nothing gives it a background (no fill, no background image, no picture).
 function needsDarkBackground(el) {
-  const cs = getComputedStyle(el);
-  const [r, g, b, a = 1] = rgbOf(cs.backgroundColor);
-  const blankBg = (a === 0 || (r >= 235 && g >= 235 && b >= 235)) && (!cs.backgroundImage || cs.backgroundImage === 'none');
-  if (!blankBg || el.querySelector('img, svg image, canvas')) return false;
+  // the slide's own fill, plus the master's and layout's (pptx-preview draws all three, stacked)
+  const layers = [el, el.querySelector('.slide-master-wrapper'), el.querySelector('.slide-layout-wrapper')].filter(Boolean);
+  for (const node of layers) {
+    const cs = getComputedStyle(node);
+    const [r, g, b, a = 1] = rgbOf(cs.backgroundColor);
+    const blank = a === 0 || (r >= 235 && g >= 235 && b >= 235);
+    if (!blank || (cs.backgroundImage && cs.backgroundImage !== 'none')) return false;
+  }
+  if (el.querySelector('img, svg image, canvas')) return false;
+  // only the slide's own text counts: the master/layout carry placeholder text in dark colours
+  const body = el.querySelector('.slide-wrapper') || el;
   let texts = 0;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     if (!n.nodeValue.trim()) continue;
     texts++;
