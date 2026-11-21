@@ -51,11 +51,14 @@ const HOLY_MASS_SECTIONS = {
   creedEn: { label: 'Apostles Creed (വിശ്വാസപ്രമാണം)', path: 'prayers/apostles-creed-english', lang: 'EN', group: 'prayers', hidden: true },
   hailMary: { label: 'Hail Mary (നന്മ നിറഞ്ഞ മറിയമേ)', path: 'prayers/hail-mary', lang: 'ML', group: 'prayers' },
   hailMaryEn: { label: 'Hail Mary (നന്മ നിറഞ്ഞ മറിയമേ)', path: 'prayers/hail-mary-english', lang: 'EN', group: 'prayers', hidden: true },
+  holyQueen: { label: 'Hail, Holy Queen (പരിശുദ്ധരാജ്ഞീ)', path: 'prayers/hail-holy-queen', lang: 'ML', group: 'prayers' },
+  holyQueenEn: { label: 'Hail, Holy Queen (പരിശുദ്ധരാജ്ഞീ)', path: 'prayers/hail-holy-queen-english', lang: 'EN', group: 'prayers', hidden: true },
 };
 const LANG_PAIRS = {
   novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' },
   creed: { ML: 'creed', EN: 'creedEn' }, creedEn: { ML: 'creed', EN: 'creedEn' },
   hailMary: { ML: 'hailMary', EN: 'hailMaryEn' }, hailMaryEn: { ML: 'hailMary', EN: 'hailMaryEn' },
+  holyQueen: { ML: 'holyQueen', EN: 'holyQueenEn' }, holyQueenEn: { ML: 'holyQueen', EN: 'holyQueenEn' },
 };
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
