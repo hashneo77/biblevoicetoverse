@@ -53,12 +53,18 @@ const HOLY_MASS_SECTIONS = {
   hailMaryEn: { label: 'Hail Mary (നന്മ നിറഞ്ഞ മറിയമേ)', path: 'prayers/hail-mary-english', lang: 'EN', group: 'prayers', hidden: true },
   holyQueen: { label: 'Hail, Holy Queen (പരിശുദ്ധരാജ്ഞീ)', path: 'prayers/hail-holy-queen', lang: 'ML', group: 'prayers' },
   holyQueenEn: { label: 'Hail, Holy Queen (പരിശുദ്ധരാജ്ഞീ)', path: 'prayers/hail-holy-queen-english', lang: 'EN', group: 'prayers', hidden: true },
+  divineMercy: { label: 'Divine Mercy Chaplet (ദൈവകരുണയുടെ ജപമാല)', path: 'prayers/divine-mercy-chaplet', lang: 'ML', group: 'prayers' },
+  divineMercyEn: { label: 'Divine Mercy Chaplet (ദൈവകരുണയുടെ ജപമാല)', path: 'prayers/divine-mercy-chaplet-english', lang: 'EN', group: 'prayers', hidden: true },
+  rosary: { label: 'Holy Rosary (പരിശുദ്ധ ജപമാല)', path: 'prayers/holy-rosary', lang: 'ML', group: 'prayers' },
+  rosaryEn: { label: 'Holy Rosary (പരിശുദ്ധ ജപമാല)', path: 'prayers/holy-rosary-english', lang: 'EN', group: 'prayers', hidden: true },
 };
 const LANG_PAIRS = {
   novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' },
   creed: { ML: 'creed', EN: 'creedEn' }, creedEn: { ML: 'creed', EN: 'creedEn' },
   hailMary: { ML: 'hailMary', EN: 'hailMaryEn' }, hailMaryEn: { ML: 'hailMary', EN: 'hailMaryEn' },
   holyQueen: { ML: 'holyQueen', EN: 'holyQueenEn' }, holyQueenEn: { ML: 'holyQueen', EN: 'holyQueenEn' },
+  divineMercy: { ML: 'divineMercy', EN: 'divineMercyEn' }, divineMercyEn: { ML: 'divineMercy', EN: 'divineMercyEn' },
+  rosary: { ML: 'rosary', EN: 'rosaryEn' }, rosaryEn: { ML: 'rosary', EN: 'rosaryEn' },
 };
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
