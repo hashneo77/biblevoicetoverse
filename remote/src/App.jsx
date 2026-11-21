@@ -59,6 +59,8 @@ const HOLY_MASS_SECTIONS = {
   rosaryEn: { label: 'Holy Rosary (പരിശുദ്ധ ജപമാല)', path: 'prayers/holy-rosary-english', lang: 'EN', group: 'prayers', hidden: true },
   litany: { label: 'Litany of the Blessed Virgin Mary (ലുത്തിനിയ)', path: 'prayers/litany-of-mary', lang: 'ML', group: 'prayers' },
   litanyEn: { label: 'Litany of the Blessed Virgin Mary (ലുത്തിനിയ)', path: 'prayers/litany-of-mary-english', lang: 'EN', group: 'prayers', hidden: true },
+  ourFather: { label: 'Our Father (സ്വർഗ്ഗസ്ഥനായ പിതാവേ)', path: 'prayers/our-father', lang: 'ML', group: 'prayers' },
+  ourFatherEn: { label: 'Our Father (സ്വർഗ്ഗസ്ഥനായ പിതാവേ)', path: 'prayers/our-father-english', lang: 'EN', group: 'prayers', hidden: true },
 };
 const LANG_PAIRS = {
   novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' },
@@ -68,6 +70,7 @@ const LANG_PAIRS = {
   divineMercy: { ML: 'divineMercy', EN: 'divineMercyEn' }, divineMercyEn: { ML: 'divineMercy', EN: 'divineMercyEn' },
   rosary: { ML: 'rosary', EN: 'rosaryEn' }, rosaryEn: { ML: 'rosary', EN: 'rosaryEn' },
   litany: { ML: 'litany', EN: 'litanyEn' }, litanyEn: { ML: 'litany', EN: 'litanyEn' },
+  ourFather: { ML: 'ourFather', EN: 'ourFatherEn' }, ourFatherEn: { ML: 'ourFather', EN: 'ourFatherEn' },
 };
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
