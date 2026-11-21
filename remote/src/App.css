@@ -1160,6 +1160,9 @@ html, body, #root {
 /* ── Holy Mass ── */
 .holy-mass-testament-btn .testament-label { color: #991b1b; }
 .holy-mass-testament-btn { border-color: #fca5a5; }
+.testament-grid > * { min-width: 0; }
+.holy-mass-testament-btn { aspect-ratio: auto; min-height: 150px; }
+.holy-mass-testament-btn .testament-label { font-size: 16px; max-width: 100%; overflow-wrap: anywhere; line-height: 1.3; }
 .holy-mass-testament-btn:active { background: #fef2f2; }
 .holy-mass-testament-btn svg { color: #991b1b; }
 
