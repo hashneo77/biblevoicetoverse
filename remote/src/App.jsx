@@ -47,8 +47,13 @@ const HOLY_MASS_SECTIONS = {
   novena: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena', lang: 'ML', group: 'prayers' },
   // the same novena in Manglish: not a tile of its own, the EN/ML button switches between the two
   novenaEn: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena-manglish', lang: 'EN', group: 'prayers', hidden: true },
+  creed: { label: 'Apostles Creed (വിശ്വാസപ്രമാണം)', path: 'prayers/apostles-creed', lang: 'ML', group: 'prayers' },
+  creedEn: { label: 'Apostles Creed (വിശ്വാസപ്രമാണം)', path: 'prayers/apostles-creed-english', lang: 'EN', group: 'prayers', hidden: true },
 };
-const LANG_PAIRS = { novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' } };
+const LANG_PAIRS = {
+  novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' },
+  creed: { ML: 'creed', EN: 'creedEn' }, creedEn: { ML: 'creed', EN: 'creedEn' },
+};
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
 // Malayalam book names, keyed by the exact English names used above.
