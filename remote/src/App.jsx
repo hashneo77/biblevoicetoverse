@@ -49,10 +49,13 @@ const HOLY_MASS_SECTIONS = {
   novenaEn: { label: 'Nithya Sahaya Mathavinte Novena', path: 'prayers/nithya-sahaya-novena-manglish', lang: 'EN', group: 'prayers', hidden: true },
   creed: { label: 'Apostles Creed (വിശ്വാസപ്രമാണം)', path: 'prayers/apostles-creed', lang: 'ML', group: 'prayers' },
   creedEn: { label: 'Apostles Creed (വിശ്വാസപ്രമാണം)', path: 'prayers/apostles-creed-english', lang: 'EN', group: 'prayers', hidden: true },
+  hailMary: { label: 'Hail Mary (നന്മ നിറഞ്ഞ മറിയമേ)', path: 'prayers/hail-mary', lang: 'ML', group: 'prayers' },
+  hailMaryEn: { label: 'Hail Mary (നന്മ നിറഞ്ഞ മറിയമേ)', path: 'prayers/hail-mary-english', lang: 'EN', group: 'prayers', hidden: true },
 };
 const LANG_PAIRS = {
   novena: { ML: 'novena', EN: 'novenaEn' }, novenaEn: { ML: 'novena', EN: 'novenaEn' },
   creed: { ML: 'creed', EN: 'creedEn' }, creedEn: { ML: 'creed', EN: 'creedEn' },
+  hailMary: { ML: 'hailMary', EN: 'hailMaryEn' }, hailMaryEn: { ML: 'hailMary', EN: 'hailMaryEn' },
 };
 const PAGE_GROUPS = { mass: 'Holy Mass', prayers: 'Prayers' };
 
